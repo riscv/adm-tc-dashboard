@@ -1,4 +1,4 @@
-# RISC-V Technical Committees Explorer
+# Technical Committees Explorer
 
 A React-based viewer for RISC-V Technical Committees, providing table, graph, and statistics views of Task Groups, Special Interest Groups, Horizontal Committees, and Governing Committees.
 

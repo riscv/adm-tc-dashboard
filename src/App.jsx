@@ -32,6 +32,12 @@ const ChartIcon = () => (
   </svg>
 )
 
+const ProposedIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path d="M12 4v16m-8-8h16" strokeWidth="2" strokeLinecap="round"/>
+  </svg>
+)
+
 const SearchIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <circle cx="11" cy="11" r="8" strokeWidth="2"/>
@@ -369,10 +375,10 @@ function Header() {
           />
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-berkeley-blue">
-              RISC-V Technical Committees Explorer
+              Technical Committees Explorer
             </h1>
             <p className="text-gray-600 text-sm hidden sm:block">
-              Task Groups, Special Interest Groups, Horizontal Committees and Governing Committees
+              Explore all Technical Committees at RISC-V International
             </p>
           </div>
         </div>
@@ -626,6 +632,227 @@ function GroupedRows({ group, rows, showEmails }) {
         <IssueRow key={`${row['Issue']}-${idx}`} row={row} showEmails={showEmails} />
       ))}
     </>
+  )
+}
+
+// Proposed View Component
+function ProposedView({ data }) {
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const filteredData = useMemo(() => {
+    if (!searchQuery.trim()) return data
+    const query = searchQuery.toLowerCase()
+    return data.filter(row =>
+      row['Summary']?.toLowerCase().includes(query) ||
+      row['Issue']?.toLowerCase().includes(query) ||
+      row['Chair']?.toLowerCase().includes(query) ||
+      row['Vice-Chair']?.toLowerCase().includes(query) ||
+      row['Chair Affiliation']?.toLowerCase().includes(query) ||
+      row['Vice-Chair Affiliation']?.toLowerCase().includes(query) ||
+      row['Linked Issue Summary']?.toLowerCase().includes(query)
+    )
+  }, [data, searchQuery])
+
+  const proposing = filteredData.filter(row => row['Status'] === 'Proposing')
+  const structuring = filteredData.filter(row => row['Status'] === 'Structuring and Chartering')
+
+  // Workflow progress component
+  const WorkflowProgress = ({ currentStatus }) => {
+    const steps = [
+      { key: 'Proposing', label: 'Proposing' },
+      { key: 'Structuring and Chartering', label: 'Structuring' },
+      { key: 'Active', label: 'Active' },
+    ]
+    const currentIndex = steps.findIndex(s => s.key === currentStatus)
+
+    return (
+      <div className="mt-3 mb-1">
+        {/* Circles and connectors row */}
+        <div className="flex items-center justify-between">
+          {steps.map((step, idx) => {
+            const isCompleted = idx < currentIndex
+            const isCurrent = idx === currentIndex
+            const isPending = idx > currentIndex
+
+            return (
+              <div key={step.key} className="flex items-center flex-1 last:flex-none">
+                <div
+                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium shrink-0
+                    ${isCompleted ? 'bg-green-500 text-white' : ''}
+                    ${isCurrent ? 'bg-california-gold text-white ring-2 ring-california-gold/30' : ''}
+                    ${isPending ? 'bg-gray-200 text-gray-400' : ''}
+                  `}
+                >
+                  {isCompleted ? (
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path d="M5 13l4 4L19 7" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  ) : (
+                    idx + 1
+                  )}
+                </div>
+                {idx < steps.length - 1 && (
+                  <div className={`flex-1 h-0.5 mx-2 ${idx < currentIndex ? 'bg-green-500' : 'bg-gray-200'}`} />
+                )}
+              </div>
+            )
+          })}
+        </div>
+        {/* Labels row */}
+        <div className="flex justify-between mt-1">
+          {steps.map((step, idx) => {
+            const isCompleted = idx < currentIndex
+            const isCurrent = idx === currentIndex
+            const isPending = idx > currentIndex
+
+            return (
+              <span
+                key={step.key}
+                className={`text-[10px] text-center leading-tight w-14
+                  ${isCompleted ? 'text-green-500 font-medium' : ''}
+                  ${isCurrent ? 'text-amber-500 font-semibold' : ''}
+                  ${isPending ? 'text-gray-300' : ''}
+                  ${idx === 0 ? 'text-left' : idx === steps.length - 1 ? 'text-right' : 'text-center'}
+                `}
+              >
+                {step.label}
+              </span>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  const CommitteeCard = ({ row }) => (
+    <div className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow">
+      <a
+        href={buildJiraUrl(row['Issue'])}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-semibold text-berkeley-blue hover:text-california-gold transition-colors block"
+      >
+        {row['Summary']}
+      </a>
+      <div className="flex items-center gap-2 mt-1">
+        <span className="text-xs text-gray-500">{row['Issue']}</span>
+        {row['Linked Issue Summary'] && (
+          <span className="inline-block px-2 py-0.5 bg-berkeley-blue/10 text-berkeley-blue text-xs rounded-full">
+            {row['Linked Issue Summary']}
+          </span>
+        )}
+      </div>
+      {/* Workflow Progress */}
+      <div className="mt-3 flex justify-center">
+        <div className="w-48">
+          <WorkflowProgress currentStatus={row['Status']} />
+        </div>
+      </div>
+      {(row['Chair'] || row['Vice-Chair']) && (
+        <div className="mt-3 pt-3 border-t border-gray-100 grid grid-cols-2 gap-3 text-sm">
+          {row['Chair'] && (
+            <div>
+              <div className={`text-xs uppercase tracking-wide font-medium ${row['Is Acting Chair'] === 'Yes' ? 'text-orange-600' : 'text-berkeley-blue'}`}>
+                {row['Is Acting Chair'] === 'Yes' ? 'Acting Chair' : 'Chair'}
+              </div>
+              <div className="font-medium text-gray-800">{row['Chair']}</div>
+              {row['Chair Affiliation'] && (
+                <div className="text-xs text-gray-500">{row['Chair Affiliation']}</div>
+              )}
+            </div>
+          )}
+          {row['Vice-Chair'] && (
+            <div>
+              <div className={`text-xs uppercase tracking-wide font-medium ${row['Is Acting Vice-Chair'] === 'Yes' ? 'text-orange-600' : 'text-berkeley-blue'}`}>
+                {row['Is Acting Vice-Chair'] === 'Yes' ? 'Acting Vice-Chair' : 'Vice-Chair'}
+              </div>
+              <div className="font-medium text-gray-800">{row['Vice-Chair']}</div>
+              {row['Vice-Chair Affiliation'] && (
+                <div className="text-xs text-gray-500">{row['Vice-Chair Affiliation']}</div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+
+  return (
+    <div className="p-6 space-y-8">
+      {/* Search Bar */}
+      <div className="relative max-w-xl mx-auto">
+        <div className="relative">
+          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400">
+            <SearchIcon />
+          </div>
+          <input
+            type="text"
+            placeholder="Search proposed committees..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-12 pr-12 py-3 bg-white border-2 border-gray-200 rounded-full
+                       focus:border-california-gold focus:ring-4 focus:ring-california-gold/20
+                       outline-none transition-all text-gray-800 placeholder-gray-400"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600"
+            >
+              <CloseIcon />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Proposing Section */}
+      <div>
+        <div className="flex items-center gap-3 mb-4">
+          <span className="w-10 h-10 bg-orange-500 text-white rounded-full flex items-center justify-center font-bold text-lg">
+            {proposing.length}
+          </span>
+          <div>
+            <h2 className="text-xl font-bold text-gray-800">Proposing</h2>
+            <p className="text-sm text-gray-500">Technical committees in the proposal stage</p>
+          </div>
+        </div>
+        {proposing.length === 0 ? (
+          <div className="bg-gray-50 rounded-lg p-8 text-center">
+            <p className="text-gray-500">No committees currently in proposing stage</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {proposing.map(row => (
+              <CommitteeCard key={row['Issue']} row={row} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Structuring and Chartering Section */}
+      <div>
+        <div className="flex items-center gap-3 mb-4">
+          <span className="w-10 h-10 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold text-lg">
+            {structuring.length}
+          </span>
+          <div>
+            <h2 className="text-xl font-bold text-gray-800">Structuring and Chartering</h2>
+            <p className="text-sm text-gray-500">Technical committees being structured and chartered</p>
+          </div>
+        </div>
+        {structuring.length === 0 ? (
+          <div className="bg-gray-50 rounded-lg p-8 text-center">
+            <p className="text-gray-500">No committees currently in structuring and chartering stage</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {structuring.map(row => (
+              <CommitteeCard key={row['Issue']} row={row} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -1765,7 +1992,7 @@ function Footer() {
     <footer className="bg-berkeley-blue-dark text-white py-6 mt-auto">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
         <p className="text-berkeley-blue-light text-sm">
-          RISC-V Technical Committees Explorer
+          Technical Committees Explorer
         </p>
       </div>
     </footer>
@@ -1832,7 +2059,7 @@ function App() {
               onClick={() => setActiveTab('table')}
               icon={<TableIcon />}
             >
-              Table View
+              Active Technical Committees
             </TabButton>
             <TabButton
               active={activeTab === 'graph'}
@@ -1848,6 +2075,13 @@ function App() {
             >
               Statistics
             </TabButton>
+            <TabButton
+              active={activeTab === 'proposed'}
+              onClick={() => setActiveTab('proposed')}
+              icon={<ProposedIcon />}
+            >
+              Proposed Technical Committees
+            </TabButton>
           </div>
         </div>
       </div>
@@ -1860,7 +2094,7 @@ function App() {
               value={searchTerm}
               onChange={setSearchTerm}
               onClear={() => setSearchTerm('')}
-              resultCount={loading ? null : filteredData.length}
+              resultCount={loading ? null : filteredData.filter(row => row['Status'] === 'Active').length}
             />
           </div>
         </div>
@@ -1884,16 +2118,19 @@ function App() {
         ) : (
           <div className="card">
             {activeTab === 'table' && (
-              <TableView data={filteredData} showEmails={SHOW_EMAILS} />
+              <TableView data={filteredData.filter(row => row['Status'] === 'Active')} showEmails={SHOW_EMAILS} />
+            )}
+            {activeTab === 'proposed' && (
+              <ProposedView data={data.filter(row => row['Status'] === 'Proposing' || row['Status'] === 'Structuring and Chartering')} />
             )}
             {activeTab === 'graph' && (
               <div className="p-6">
-                <GraphView data={data} />
+                <GraphView data={data.filter(row => row['Status'] === 'Active')} />
               </div>
             )}
             {activeTab === 'stats' && (
               <div className="p-6">
-                <StatisticsView data={data} />
+                <StatisticsView data={data.filter(row => row['Status'] === 'Active')} />
               </div>
             )}
           </div>

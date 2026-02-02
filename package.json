@@ -1,5 +1,5 @@
 {
-  "name": "riscv-technical-committees-explorer",
+  "name": "technical-committees-explorer",
   "private": true,
   "version": "1.0.0",
   "description": "A React-based viewer for RISC-V Technical Committees",

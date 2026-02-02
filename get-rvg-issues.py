@@ -50,8 +50,8 @@ HTTP_TIMEOUT_SECS = int(os.getenv("JIRA_HTTP_TIMEOUT", "30"))
 # Project key
 PROJECT_KEY = "RVG"
 
-# Default JQL to fetch only active parent issues (exclude subtasks)
-DEFAULT_JQL = f"project = {PROJECT_KEY} AND issuetype not in subTaskIssueTypes() AND status = Active ORDER BY key ASC"
+# Default JQL to fetch parent issues with relevant statuses (exclude subtasks)
+DEFAULT_JQL = f"project = {PROJECT_KEY} AND issuetype not in subTaskIssueTypes() AND status in (Active, Proposing, \"Structuring and Chartering\") ORDER BY status ASC, key ASC"
 
 # Custom field IDs (from get-custom-fields.py)
 CF_CHAIR = "customfield_10092"  # Chair
@@ -70,6 +70,8 @@ CF_NEXT_ELECTION_MONTH = "customfield_10312"  # Next Election Month
 CF_NEXT_ELECTION_YEAR = "customfield_10313"  # Next Election Year
 CF_LAST_ELECTION_MONTH = "customfield_10311"  # Last Election Month
 CF_LAST_ELECTION_YEAR = "customfield_10310"  # Last Election Year
+CF_IS_ACTING_CHAIR = "customfield_10094"  # Is Acting Chair?
+CF_IS_ACTING_VICE_CHAIR = "customfield_10102"  # Is Acting Vice-Chair?
 
 # Link types we're interested in (inward link names)
 LINK_TYPES_OF_INTEREST = [
@@ -98,6 +100,8 @@ ISSUE_FIELDS = [
     CF_NEXT_ELECTION_YEAR,
     CF_LAST_ELECTION_MONTH,
     CF_LAST_ELECTION_YEAR,
+    CF_IS_ACTING_CHAIR,
+    CF_IS_ACTING_VICE_CHAIR,
 ]
 
 # =========================
@@ -371,6 +375,27 @@ def process_issue(issue_data: Dict) -> Dict:
     last_election_month = extract_dropdown_value(fields.get(CF_LAST_ELECTION_MONTH))
     last_election_year = extract_dropdown_value(fields.get(CF_LAST_ELECTION_YEAR))
 
+    # Extract acting chair/vice-chair flags (checkbox fields)
+    is_acting_chair_raw = fields.get(CF_IS_ACTING_CHAIR)
+    is_acting_vice_chair_raw = fields.get(CF_IS_ACTING_VICE_CHAIR)
+    # Checkbox fields can be: None, boolean, or list with {"value": "Yes"/"No"}
+    def parse_checkbox(val):
+        if val is None:
+            return False
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, list) and len(val) > 0:
+            first = val[0]
+            if isinstance(first, dict):
+                return first.get("value", "").lower() == "yes"
+            return str(first).lower() == "yes"
+        if isinstance(val, dict):
+            return val.get("value", "").lower() == "yes"
+        return str(val).lower() in ("yes", "true", "1")
+
+    is_acting_chair = parse_checkbox(is_acting_chair_raw)
+    is_acting_vice_chair = parse_checkbox(is_acting_vice_chair_raw)
+
     return {
         "key": issue_key,
         "summary": fields.get("summary", ""),
@@ -393,6 +418,8 @@ def process_issue(issue_data: Dict) -> Dict:
         "next_election_year": next_election_year,
         "last_election_month": last_election_month,
         "last_election_year": last_election_year,
+        "is_acting_chair": is_acting_chair,
+        "is_acting_vice_chair": is_acting_vice_chair,
     }
 
 
@@ -645,9 +672,11 @@ def save_grouped_csv(results: List[Dict], filepath: str) -> None:
                     "Chair": issue["chair"] or "",
                     "Chair Email": issue["chair_email"] or "",
                     "Chair Affiliation": issue.get("chair_affiliation") or "",
+                    "Is Acting Chair": "Yes" if issue.get("is_acting_chair") else "No",
                     "Vice-Chair": issue["vice_chair"] or "",
                     "Vice-Chair Email": issue["vice_chair_email"] or "",
                     "Vice-Chair Affiliation": issue.get("vice_chair_affiliation") or "",
+                    "Is Acting Vice-Chair": "Yes" if issue.get("is_acting_vice_chair") else "No",
                     "Linked Issue Summary": li["summary"],
                     "Linked Issue Chair": li["chair"] or "",
                     "Linked Issue Chair Email": li["chair_email"] or "",
@@ -677,9 +706,11 @@ def save_grouped_csv(results: List[Dict], filepath: str) -> None:
                 "Chair": issue["chair"] or "",
                 "Chair Email": issue["chair_email"] or "",
                 "Chair Affiliation": issue.get("chair_affiliation") or "",
+                "Is Acting Chair": "Yes" if issue.get("is_acting_chair") else "No",
                 "Vice-Chair": issue["vice_chair"] or "",
                 "Vice-Chair Email": issue["vice_chair_email"] or "",
                 "Vice-Chair Affiliation": issue.get("vice_chair_affiliation") or "",
+                "Is Acting Vice-Chair": "Yes" if issue.get("is_acting_vice_chair") else "No",
                 "Linked Issue Summary": "",
                 "Linked Issue Chair": "",
                 "Linked Issue Chair Email": "",
@@ -713,9 +744,11 @@ def save_grouped_csv(results: List[Dict], filepath: str) -> None:
             "Chair",
             "Chair Email",
             "Chair Affiliation",
+            "Is Acting Chair",
             "Vice-Chair",
             "Vice-Chair Email",
             "Vice-Chair Affiliation",
+            "Is Acting Vice-Chair",
             "Linked Issue Summary",
             "Linked Issue Chair",
             "Linked Issue Chair Email",
