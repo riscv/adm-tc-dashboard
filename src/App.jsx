@@ -446,7 +446,7 @@ function Header() {
           />
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-berkeley-blue">
-              Technical Committees Explorer
+              Tech Committees Explorer
             </h1>
             <p className="text-gray-600 text-sm hidden sm:block">
               Explore all Technical Committees at RISC-V International
@@ -529,9 +529,9 @@ function IssueRow({ row, showEmails }) {
 
   return (
     <tr className="hover:bg-california-gold/5 transition-colors">
-      <td className="px-4 py-4">
+      <td className="pl-10 pr-4 py-4">
         <a
-          href={jiraUrl}
+          href={row['Confluence Space'] || jiraUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="font-semibold text-berkeley-blue hover:text-california-gold transition-colors hover:underline"
@@ -539,7 +539,6 @@ function IssueRow({ row, showEmails }) {
           {row['Summary']}
         </a>
         <div className="flex items-center gap-2 mt-1">
-          <span className="text-xs text-gray-400">{row['Issue']}</span>
           <StatusBadge status={row['Status']} />
           <YearsActiveBadge creationDate={row['Creation Date']} />
           <ActivityBadge level={row['Activity Level']} />
@@ -547,7 +546,7 @@ function IssueRow({ row, showEmails }) {
         {hasResources && (
           <div className="flex flex-wrap items-center gap-3 mt-2">
             <ResourceLink href={row['Charter']} label="Charter" />
-            <ResourceLink href={row['Confluence Space']} label="Confluence" />
+            <ResourceLink href={jiraUrl} label="Details" />
             <ResourceLink href={row['Mailing List']} label="Mailing List" />
             <ResourceLink href={row['Meeting Notes']} label="Meeting Notes" />
           </div>
@@ -660,15 +659,33 @@ function GroupHeader({ title, count, showEmails }) {
 
 // Table View Component
 function TableView({ data, showEmails }) {
+  const [typeFilter, setTypeFilter] = useState(null)
+
+  const filteredByType = useMemo(() => {
+    if (!typeFilter) return data
+    return data.filter(row => {
+      const summary = (row['Summary'] || '').trim()
+      if (typeFilter === 'TG') return summary.endsWith('TG')
+      if (typeFilter === 'SIG') return summary.endsWith('SIG')
+      if (typeFilter === 'HC') return summary.includes('(HC)')
+      if (typeFilter === 'IC') return summary.includes('(IC)')
+      return true
+    })
+  }, [data, typeFilter])
+
   // Group by Linked Issue Summary
-  const grouped = data.reduce((acc, row) => {
+  const grouped = filteredByType.reduce((acc, row) => {
     const group = row['Linked Issue Summary'] || 'No Governing Committee'
     if (!acc[group]) acc[group] = []
     acc[group].push(row)
     return acc
   }, {})
 
-  const sortedGroups = Object.keys(grouped).sort()
+  const sortedGroups = Object.keys(grouped).sort((a, b) => {
+    if (a === 'Technical Steering Committee (TSC)') return -1
+    if (b === 'Technical Steering Committee (TSC)') return 1
+    return a.localeCompare(b)
+  })
 
   if (data.length === 0) {
     return (
@@ -681,8 +698,37 @@ function TableView({ data, showEmails }) {
     )
   }
 
+  const filterButtons = [
+    { key: null, label: 'All' },
+    { key: 'TG', label: 'Task Groups' },
+    { key: 'SIG', label: 'Special Interest Groups' },
+    { key: 'HC', label: 'Horizontal Committees' },
+    { key: 'IC', label: 'ISA Committees' },
+  ]
+
   return (
     <div className="overflow-x-auto">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 bg-gray-50">
+        <span className="text-sm font-medium text-gray-600 mr-1">Filter:</span>
+        {filterButtons.map(btn => (
+          <button
+            key={btn.label}
+            onClick={() => setTypeFilter(btn.key)}
+            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+              typeFilter === btn.key
+                ? 'bg-berkeley-blue text-white'
+                : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'
+            }`}
+          >
+            {btn.label}
+          </button>
+        ))}
+        {typeFilter && (
+          <span className="ml-2 text-xs text-gray-500">
+            {filteredByType.length} of {data.length} committees
+          </span>
+        )}
+      </div>
       <table className="w-full">
         <thead className="bg-berkeley-blue text-white sticky top-0">
           <tr>
@@ -707,10 +753,13 @@ function TableView({ data, showEmails }) {
 }
 
 function GroupedRows({ group, rows, showEmails }) {
+  const sortedRows = [...rows].sort((a, b) =>
+    (a['Summary'] || '').localeCompare(b['Summary'] || '')
+  )
   return (
     <>
-      <GroupHeader title={group} count={rows.length} showEmails={showEmails} />
-      {rows.map((row, idx) => (
+      <GroupHeader title={group} count={sortedRows.length} showEmails={showEmails} />
+      {sortedRows.map((row, idx) => (
         <IssueRow key={`${row['Issue']}-${idx}`} row={row} showEmails={showEmails} />
       ))}
     </>
@@ -819,7 +868,6 @@ function ProposedView({ data }) {
           {row['Summary']}
         </a>
         <div className="flex items-center gap-2 mt-1">
-          <span className="text-xs text-gray-500">{row['Issue']}</span>
           {row['Linked Issue Summary'] && (
             <span className="inline-block px-2 py-0.5 bg-berkeley-blue/10 text-berkeley-blue text-xs rounded-full">
               {row['Linked Issue Summary']}
@@ -881,6 +929,77 @@ function ProposedView({ data }) {
     )
   }
 
+  const ProposingListItem = ({ row }) => {
+    const mailto = buildMailtoLink(row)
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow flex flex-col lg:flex-row lg:items-center gap-4">
+        {/* Name */}
+        <div className="lg:w-1/4 min-w-[200px]">
+          <a
+            href={buildJiraUrl(row['Issue'])}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-berkeley-blue hover:text-california-gold transition-colors block"
+          >
+            {row['Summary']}
+          </a>
+          {row['Linked Issue Summary'] && (
+            <div className="mt-1">
+                <span className="inline-block px-2 py-0.5 bg-berkeley-blue/10 text-berkeley-blue text-xs rounded-full">
+                {row['Linked Issue Summary']}
+                </span>
+            </div>
+          )}
+        </div>
+
+        {/* Workflow Progress */}
+        <div className="lg:w-1/4 min-w-[200px]">
+          <WorkflowProgress currentStatus={row['Status']} />
+        </div>
+
+        {/* Chair & Vice-Chair */}
+        <div className="flex-1 grid grid-cols-2 gap-4 text-sm">
+             <div className="min-w-[120px]">
+                {row['Chair'] ? (
+                    <>
+                        <div className={`text-xs uppercase tracking-wide font-medium ${row['Is Acting Chair'] === 'Yes' ? 'text-orange-600' : 'text-berkeley-blue'}`}>
+                        {row['Is Acting Chair'] === 'Yes' ? 'Acting Chair' : 'Chair'}
+                        </div>
+                        <div className="font-medium text-gray-800">{row['Chair']}</div>
+                        {row['Chair Affiliation'] && <div className="text-xs text-gray-500">{row['Chair Affiliation']}</div>}
+                    </>
+                ) : <span className="text-gray-400 text-xs">No Chair</span>}
+             </div>
+             <div className="min-w-[120px]">
+                {row['Vice-Chair'] ? (
+                    <>
+                        <div className={`text-xs uppercase tracking-wide font-medium ${row['Is Acting Vice-Chair'] === 'Yes' ? 'text-orange-600' : 'text-berkeley-blue'}`}>
+                        {row['Is Acting Vice-Chair'] === 'Yes' ? 'Acting Vice-Chair' : 'Vice-Chair'}
+                        </div>
+                        <div className="font-medium text-gray-800">{row['Vice-Chair']}</div>
+                        {row['Vice-Chair Affiliation'] && <div className="text-xs text-gray-500">{row['Vice-Chair Affiliation']}</div>}
+                    </>
+                ) : <span className="text-gray-400 text-xs">No Vice-Chair</span>}
+             </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1 justify-end min-w-[80px]">
+          <CopyButton row={row} showEmails={true} />
+          {mailto && (
+            <a
+              href={mailto}
+              className="p-1.5 rounded transition-colors text-gray-400 hover:text-berkeley-blue hover:bg-gray-100"
+              title="Email chairs"
+            >
+              <SendIcon />
+            </a>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="p-6 space-y-8">
       {/* Search Bar */}
@@ -925,9 +1044,9 @@ function ProposedView({ data }) {
             <p className="text-gray-500">No committees currently in proposing stage</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="space-y-3">
             {proposing.map(row => (
-              <CommitteeCard key={row['Issue']} row={row} />
+              <ProposingListItem key={row['Issue']} row={row} />
             ))}
           </div>
         )}
@@ -949,9 +1068,9 @@ function ProposedView({ data }) {
             <p className="text-gray-500">No committees currently in structuring and chartering stage</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="space-y-3">
             {structuring.map(row => (
-              <CommitteeCard key={row['Issue']} row={row} />
+              <ProposingListItem key={row['Issue']} row={row} />
             ))}
           </div>
         )}
@@ -960,12 +1079,13 @@ function ProposedView({ data }) {
   )
 }
 
-// Graph View Component
+// Hierarchy Explorer Component
 function GraphView({ data }) {
   const containerRef = useRef(null)
   const svgRef = useRef(null)
   const tooltipRef = useRef(null)
-  const [initialized, setInitialized] = useState(false)
+  const [viewMode, setViewMode] = useState('graph')
+  const zoomRef = useRef(null)
 
   const colorScale = {
     'TSC': '#003262',  // Berkeley Blue
@@ -1093,9 +1213,42 @@ function GraphView({ data }) {
     return { nodes: Array.from(nodes.values()), links }
   }, [])
 
+  const buildTreeData = useCallback((nodes, links) => {
+    const nodeMap = new Map()
+    nodes.forEach(n => nodeMap.set(n.id, { ...n, children: [] }))
+
+    // Track which nodes already have a parent to enforce tree structure
+    const hasParent = new Set()
+
+    links.forEach(l => {
+      const sourceId = typeof l.source === 'object' ? l.source.id : l.source
+      const targetId = typeof l.target === 'object' ? l.target.id : l.target
+      const parent = nodeMap.get(sourceId)
+      const child = nodeMap.get(targetId)
+      if (parent && child && !hasParent.has(targetId)) {
+        parent.children.push(child)
+        hasParent.add(targetId)
+      }
+    })
+
+    const root = nodeMap.get('TSC')
+    if (!root) return null
+
+    // Sort children alphabetically at every level, then clean empty arrays
+    const sortAndClean = (node) => {
+      if (!node.children || node.children.length === 0) {
+        delete node.children
+      } else {
+        node.children.sort((a, b) => a.name.localeCompare(b.name))
+        node.children.forEach(sortAndClean)
+      }
+      return node
+    }
+    return sortAndClean(root)
+  }, [])
+
   useEffect(() => {
-    if (initialized || !data.length || !containerRef.current) return
-    setInitialized(true)
+    if (!data.length || !containerRef.current) return
 
     const container = containerRef.current
     const width = container.clientWidth
@@ -1103,7 +1256,7 @@ function GraphView({ data }) {
 
     const { nodes, links } = buildHierarchy(data)
 
-    // Clear previous
+    // Clear previous content
     d3.select(container).selectAll('*').remove()
 
     const svg = d3.select(container)
@@ -1116,7 +1269,7 @@ function GraphView({ data }) {
 
     const g = svg.append('g')
 
-    // Zoom behavior
+    // Zoom behavior (shared)
     const zoom = d3.zoom()
       .scaleExtent([0.2, 4])
       .on('zoom', (event) => {
@@ -1124,131 +1277,274 @@ function GraphView({ data }) {
       })
 
     svg.call(zoom)
+    zoomRef.current = zoom
 
-    // Force simulation
-    const simulation = d3.forceSimulation(nodes)
-      .force('link', d3.forceLink(links).id(d => d.id).distance(120))
-      .force('charge', d3.forceManyBody().strength(-400))
-      .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collision', d3.forceCollide().radius(d => sizeScale[d.type] + 25))
-
-    // Links
-    const link = g.append('g')
-      .selectAll('line')
-      .data(links)
-      .enter()
-      .append('line')
-      .attr('stroke', '#dadce0')
-      .attr('stroke-width', 2)
-
-    // Nodes
-    const node = g.append('g')
-      .selectAll('.node')
-      .data(nodes)
-      .enter()
-      .append('g')
-      .attr('class', 'node cursor-pointer')
-      .call(d3.drag()
-        .on('start', (event, d) => {
-          if (!event.active) simulation.alphaTarget(0.3).restart()
-          d.fx = d.x
-          d.fy = d.y
-        })
-        .on('drag', (event, d) => {
-          d.fx = event.x
-          d.fy = event.y
-        })
-        .on('end', (event, d) => {
-          if (!event.active) simulation.alphaTarget(0)
-          d.fx = null
-          d.fy = null
-        }))
-
-    node.append('circle')
-      .attr('r', d => sizeScale[d.type])
-      .attr('fill', d => colorScale[d.type])
-      .attr('stroke', '#fff')
-      .attr('stroke-width', 3)
-      .style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))')
-
-    node.append('text')
-      .attr('dy', d => sizeScale[d.type] + 16)
-      .attr('text-anchor', 'middle')
-      .attr('fill', '#374151')
-      .attr('font-size', '11px')
-      .attr('font-weight', '500')
-      .text(d => d.name.length > 25 ? d.name.substring(0, 22) + '...' : d.name)
-
-    // Tooltip
     const tooltip = d3.select(tooltipRef.current)
 
-    node.on('mouseover', (event, d) => {
-      tooltip.html(`
-        <div class="font-bold text-berkeley-blue mb-2">${d.name}</div>
-        ${d.issueKey ? `<div class="text-sm"><span class="text-gray-500">Issue:</span> ${d.issueKey}</div>` : ''}
-        <div class="text-sm"><span class="text-gray-500">Type:</span> <span class="font-medium">${d.type}</span></div>
-        ${d.chair ? `<div class="text-sm"><span class="text-gray-500">Chair:</span> ${d.chair}</div>` : ''}
-        ${d.chairEmail ? `<div class="text-xs text-gray-400">${d.chairEmail}</div>` : ''}
-        ${d.viceChair ? `<div class="text-sm mt-1"><span class="text-gray-500">Vice-Chair:</span> ${d.viceChair}</div>` : ''}
-        ${d.viceChairEmail ? `<div class="text-xs text-gray-400">${d.viceChairEmail}</div>` : ''}
-      `)
-      tooltip.style('opacity', '1')
-      tooltip.style('left', (event.pageX + 15) + 'px')
-      tooltip.style('top', (event.pageY - 10) + 'px')
-    })
-    .on('mousemove', (event) => {
-      tooltip.style('left', (event.pageX + 15) + 'px')
-      tooltip.style('top', (event.pageY - 10) + 'px')
-    })
-    .on('mouseout', () => {
-      tooltip.style('opacity', '0')
-    })
+    const attachTooltip = (selection) => {
+      selection
+        .on('mouseover', (event, d) => {
+          tooltip.html(`
+            <div class="font-bold text-berkeley-blue mb-2">${d.data ? d.data.name : d.name}</div>
+            ${(d.data || d).issueKey ? `<div class="text-sm"><span class="text-gray-500">Issue:</span> ${(d.data || d).issueKey}</div>` : ''}
+            <div class="text-sm"><span class="text-gray-500">Type:</span> <span class="font-medium">${(d.data || d).type}</span></div>
+            ${(d.data || d).chair ? `<div class="text-sm"><span class="text-gray-500">Chair:</span> ${(d.data || d).chair}</div>` : ''}
+            ${(d.data || d).chairEmail ? `<div class="text-xs text-gray-400">${(d.data || d).chairEmail}</div>` : ''}
+            ${(d.data || d).viceChair ? `<div class="text-sm mt-1"><span class="text-gray-500">Vice-Chair:</span> ${(d.data || d).viceChair}</div>` : ''}
+            ${(d.data || d).viceChairEmail ? `<div class="text-xs text-gray-400">${(d.data || d).viceChairEmail}</div>` : ''}
+          `)
+          tooltip.style('opacity', '1')
+          tooltip.style('left', (event.pageX + 15) + 'px')
+          tooltip.style('top', (event.pageY - 10) + 'px')
+        })
+        .on('mousemove', (event) => {
+          tooltip.style('left', (event.pageX + 15) + 'px')
+          tooltip.style('top', (event.pageY - 10) + 'px')
+        })
+        .on('mouseout', () => {
+          tooltip.style('opacity', '0')
+        })
+    }
 
-    // Simulation tick
-    simulation.on('tick', () => {
-      link
-        .attr('x1', d => d.source.x)
-        .attr('y1', d => d.source.y)
-        .attr('x2', d => d.target.x)
-        .attr('y2', d => d.target.y)
+    let simulation = null
+    let zoomTimer = null
 
-      node.attr('transform', d => `translate(${d.x},${d.y})`)
-    })
+    if (viewMode === 'graph') {
+      // ── Force-directed graph ──
+      simulation = d3.forceSimulation(nodes)
+        .force('link', d3.forceLink(links).id(d => d.id).distance(120))
+        .force('charge', d3.forceManyBody().strength(-400))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+        .force('collision', d3.forceCollide().radius(d => sizeScale[d.type] + 25))
 
-    // Initial zoom to fit
-    setTimeout(() => {
-      const bounds = g.node().getBBox()
-      const scale = 0.8 / Math.max(bounds.width / width, bounds.height / height)
-      const translate = [
-        width / 2 - scale * (bounds.x + bounds.width / 2),
-        height / 2 - scale * (bounds.y + bounds.height / 2)
-      ]
-      svg.transition().duration(750).call(
-        zoom.transform,
-        d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale)
-      )
-    }, 1000)
+      const link = g.append('g')
+        .selectAll('line')
+        .data(links)
+        .enter()
+        .append('line')
+        .attr('stroke', '#dadce0')
+        .attr('stroke-width', 2)
 
-  }, [data, initialized, buildHierarchy])
+      const node = g.append('g')
+        .selectAll('.node')
+        .data(nodes)
+        .enter()
+        .append('g')
+        .attr('class', 'node cursor-pointer')
+        .call(d3.drag()
+          .on('start', (event, d) => {
+            if (!event.active) simulation.alphaTarget(0.3).restart()
+            d.fx = d.x
+            d.fy = d.y
+          })
+          .on('drag', (event, d) => {
+            d.fx = event.x
+            d.fy = event.y
+          })
+          .on('end', (event, d) => {
+            if (!event.active) simulation.alphaTarget(0)
+            d.fx = null
+            d.fy = null
+          }))
+
+      node.append('circle')
+        .attr('r', d => sizeScale[d.type])
+        .attr('fill', d => colorScale[d.type])
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 3)
+        .style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))')
+
+      node.append('text')
+        .attr('dy', d => sizeScale[d.type] + 16)
+        .attr('text-anchor', 'middle')
+        .attr('fill', '#374151')
+        .attr('font-size', '11px')
+        .attr('font-weight', '500')
+        .text(d => d.name.length > 25 ? d.name.substring(0, 22) + '...' : d.name)
+
+      attachTooltip(node)
+
+      simulation.on('tick', () => {
+        link
+          .attr('x1', d => d.source.x)
+          .attr('y1', d => d.source.y)
+          .attr('x2', d => d.target.x)
+          .attr('y2', d => d.target.y)
+
+        node.attr('transform', d => `translate(${d.x},${d.y})`)
+      })
+
+      // Initial zoom to fit after simulation settles
+      zoomTimer = setTimeout(() => {
+        const bounds = g.node()?.getBBox()
+        if (!bounds || (bounds.width === 0 && bounds.height === 0)) return
+        const scale = 0.8 / Math.max(bounds.width / width, bounds.height / height)
+        const translate = [
+          width / 2 - scale * (bounds.x + bounds.width / 2),
+          height / 2 - scale * (bounds.y + bounds.height / 2)
+        ]
+        svg.transition().duration(750).call(
+          zoom.transform,
+          d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale)
+        )
+      }, 1000)
+
+    } else {
+      // ── Organogram (horizontal tree layout, left → right, pill nodes) ──
+      const treeData = buildTreeData(nodes, links)
+      if (!treeData) return
+
+      const root = d3.hierarchy(treeData)
+      const pillH = 30
+      const paddingX = 14
+      const paddingY = 8
+      // nodeSize([verticalGap, horizontalGap])
+      // Wider separation for non-siblings to reduce line crossings
+      const treeLayout = d3.tree()
+        .nodeSize([pillH + paddingY, 280])
+        .separation((a, b) => a.parent === b.parent ? 1 : 1.8)
+      treeLayout(root)
+
+      // Measure tree bounds to center it
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+      root.each(d => {
+        if (d.x < minX) minX = d.x
+        if (d.x > maxX) maxX = d.x
+        if (d.y < minY) minY = d.y
+        if (d.y > maxY) maxY = d.y
+      })
+      const treeW = maxY - minY + 260
+      const treeH = maxX - minX + pillH + paddingY
+      const scale = Math.min(1, (width - 40) / treeW, (height - 40) / treeH)
+      const offsetX = (width / 2 - scale * (minY + treeW / 2))
+      const offsetY = (height / 2 - scale * (minX + treeH / 2))
+      svg.call(zoom.transform, d3.zoomIdentity.translate(offsetX, offsetY).scale(scale))
+
+      // Draw nodes first (to measure text), then connectors
+      const node = g.append('g')
+        .selectAll('.node')
+        .data(root.descendants())
+        .enter()
+        .append('g')
+        .attr('class', 'node cursor-pointer')
+        .attr('transform', d => `translate(${d.y},${d.x})`)
+
+      // Add text first so we can measure it
+      node.append('text')
+        .attr('text-anchor', 'middle')
+        .attr('dy', '0.35em')
+        .attr('fill', '#fff')
+        .attr('font-size', '11px')
+        .attr('font-weight', '600')
+        .text(d => d.data.name.length > 30 ? d.data.name.substring(0, 27) + '...' : d.data.name)
+
+      // Measure each text and insert a pill rect behind it
+      node.each(function (d) {
+        const textEl = d3.select(this).select('text')
+        const bbox = textEl.node().getBBox()
+        const pillW = bbox.width + paddingX * 2
+        const pillHt = pillH
+        // Store pill width on data for connector attachment
+        d._pillW = pillW
+
+        d3.select(this).insert('rect', 'text')
+          .attr('x', -pillW / 2)
+          .attr('y', -pillHt / 2)
+          .attr('width', pillW)
+          .attr('height', pillHt)
+          .attr('rx', pillHt / 2)
+          .attr('ry', pillHt / 2)
+          .attr('fill', colorScale[d.data.type])
+          .attr('stroke', '#fff')
+          .attr('stroke-width', 2)
+          .style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))')
+      })
+
+      // Draw smooth bezier connectors (attach to pill edges)
+      g.insert('g', ':first-child')
+        .selectAll('path')
+        .data(root.links())
+        .enter()
+        .append('path')
+        .attr('d', d => {
+          const srcX = d.source.y + (d.source._pillW || 0) / 2
+          const srcY = d.source.x
+          const tgtX = d.target.y - (d.target._pillW || 0) / 2
+          const tgtY = d.target.x
+          const midX = (srcX + tgtX) / 2
+          return `M${srcX},${srcY} C${midX},${srcY} ${midX},${tgtY} ${tgtX},${tgtY}`
+        })
+        .attr('fill', 'none')
+        .attr('stroke', '#c8cfd8')
+        .attr('stroke-width', 1.5)
+
+      attachTooltip(node)
+    }
+
+    // Cleanup: stop simulation and clear pending timers when deps change
+    return () => {
+      if (simulation) simulation.stop()
+      if (zoomTimer) clearTimeout(zoomTimer)
+    }
+
+  }, [data, viewMode, buildHierarchy, buildTreeData])
 
   return (
     <div className="relative">
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
+        {/* View mode toggle */}
+        <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+          <button
+            onClick={() => setViewMode('graph')}
+            className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+              viewMode === 'graph'
+                ? 'bg-berkeley-blue text-white'
+                : 'bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            Graph
+          </button>
+          <button
+            onClick={() => setViewMode('organogram')}
+            className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+              viewMode === 'organogram'
+                ? 'bg-berkeley-blue text-white'
+                : 'bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            Organogram
+          </button>
+        </div>
+
+        <div className="w-px h-6 bg-gray-200" />
+
         <button
-          onClick={() => svgRef.current?.transition().call(d3.zoom().scaleBy, 1.3)}
+          onClick={() => {
+            if (svgRef.current && zoomRef.current) {
+              svgRef.current.transition().call(zoomRef.current.scaleBy, 1.3)
+            }
+          }}
           className="btn-secondary text-sm"
         >
           + Zoom In
         </button>
         <button
-          onClick={() => svgRef.current?.transition().call(d3.zoom().scaleBy, 0.7)}
+          onClick={() => {
+            if (svgRef.current && zoomRef.current) {
+              svgRef.current.transition().call(zoomRef.current.scaleBy, 0.7)
+            }
+          }}
           className="btn-secondary text-sm"
         >
           - Zoom Out
         </button>
         <button
-          onClick={() => svgRef.current?.transition().call(d3.zoom().transform, d3.zoomIdentity)}
+          onClick={() => {
+            if (svgRef.current && zoomRef.current) {
+              svgRef.current.transition().call(zoomRef.current.transform, d3.zoomIdentity)
+            }
+          }}
           className="btn-secondary text-sm"
         >
           Reset View
@@ -1596,6 +1892,7 @@ function StatisticsView({ data }) {
       )}
 
       {/* Company Positions */}
+      {import.meta.env.VITE_ENABLE_POSITIONS_BY_COMPANY === 'true' && (
       <div>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
           <div>
@@ -1700,6 +1997,7 @@ function StatisticsView({ data }) {
           </div>
         </div>
       </div>
+      )}
 
       {/* TGs Approaching 2 Years */}
       <div>
@@ -1817,113 +2115,6 @@ function StatisticsView({ data }) {
                       {row['Summary']}
                     </a>
                     <div className="text-xs text-gray-500">{row.daysUntil} days</div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Longest Running Technical Committees */}
-      <div>
-        <h2 className="text-xl font-bold text-berkeley-blue mb-4">Longest Running Technical Committees</h2>
-        <p className="text-gray-600 text-sm mb-6">Top 5 oldest groups by category based on creation date</p>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Task Groups */}
-          <div className="bg-gradient-to-br from-berkeley-blue/5 to-berkeley-blue/10 rounded-xl p-4 border border-berkeley-blue/20">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="w-8 h-8 bg-berkeley-blue text-white rounded-full flex items-center justify-center text-sm font-bold">TG</span>
-              <span className="font-semibold text-berkeley-blue">Task Groups</span>
-            </div>
-            <div className="space-y-2">
-              {longestRunning.tgs.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No data available</p>
-              ) : (
-                longestRunning.tgs.map((row, idx) => (
-                  <div key={row['Issue']} className="flex items-start gap-2 text-sm bg-white rounded p-2">
-                    <span className="w-5 h-5 bg-berkeley-blue/10 text-berkeley-blue rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">
-                      {idx + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <a
-                        href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium text-gray-800 hover:text-berkeley-blue block truncate"
-                        title={row['Summary']}
-                      >
-                        {row['Summary']}
-                      </a>
-                      <div className="text-xs text-berkeley-blue font-semibold">{row.years} years</div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* SIGs */}
-          <div className="bg-gradient-to-br from-california-gold/5 to-california-gold/10 rounded-xl p-4 border border-california-gold/30">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="w-8 h-8 bg-california-gold text-berkeley-blue rounded-full flex items-center justify-center text-sm font-bold">SIG</span>
-              <span className="font-semibold text-yellow-700">Special Interest Groups</span>
-            </div>
-            <div className="space-y-2">
-              {longestRunning.sigs.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No data available</p>
-              ) : (
-                longestRunning.sigs.map((row, idx) => (
-                  <div key={row['Issue']} className="flex items-start gap-2 text-sm bg-white rounded p-2">
-                    <span className="w-5 h-5 bg-california-gold/20 text-yellow-700 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">
-                      {idx + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <a
-                        href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium text-gray-800 hover:text-yellow-600 block truncate"
-                        title={row['Summary']}
-                      >
-                        {row['Summary']}
-                      </a>
-                      <div className="text-xs text-yellow-700 font-semibold">{row.years} years</div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Committees */}
-          <div className="bg-gradient-to-br from-berkeley-blue-light/5 to-berkeley-blue-light/10 rounded-xl p-4 border border-berkeley-blue-light/30">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="w-8 h-8 bg-berkeley-blue-light text-white rounded-full flex items-center justify-center text-sm font-bold">HC</span>
-              <span className="font-semibold text-berkeley-blue-light">Committees</span>
-            </div>
-            <div className="space-y-2">
-              {longestRunning.committees.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No data available</p>
-              ) : (
-                longestRunning.committees.map((row, idx) => (
-                  <div key={row['Issue']} className="flex items-start gap-2 text-sm bg-white rounded p-2">
-                    <span className="w-5 h-5 bg-berkeley-blue-light/20 text-berkeley-blue-light rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">
-                      {idx + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <a
-                        href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium text-gray-800 hover:text-berkeley-blue-light block truncate"
-                        title={row['Summary']}
-                      >
-                        {row['Summary']}
-                      </a>
-                      <div className="text-xs text-berkeley-blue-light font-semibold">{row.years} years</div>
-                    </div>
                   </div>
                 ))
               )}
@@ -2059,6 +2250,113 @@ function StatisticsView({ data }) {
         </div>
       </div>
 
+      {/* Longest Running Technical Committees */}
+      <div>
+        <h2 className="text-xl font-bold text-berkeley-blue mb-4">Longest Running Technical Committees</h2>
+        <p className="text-gray-600 text-sm mb-6">Top 5 oldest groups by category based on creation date</p>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Task Groups */}
+          <div className="bg-gradient-to-br from-berkeley-blue/5 to-berkeley-blue/10 rounded-xl p-4 border border-berkeley-blue/20">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-8 h-8 bg-berkeley-blue text-white rounded-full flex items-center justify-center text-sm font-bold">TG</span>
+              <span className="font-semibold text-berkeley-blue">Task Groups</span>
+            </div>
+            <div className="space-y-2">
+              {longestRunning.tgs.length === 0 ? (
+                <p className="text-sm text-gray-500 italic">No data available</p>
+              ) : (
+                longestRunning.tgs.map((row, idx) => (
+                  <div key={row['Issue']} className="flex items-start gap-2 text-sm bg-white rounded p-2">
+                    <span className="w-5 h-5 bg-berkeley-blue/10 text-berkeley-blue rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">
+                      {idx + 1}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <a
+                        href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-gray-800 hover:text-berkeley-blue block truncate"
+                        title={row['Summary']}
+                      >
+                        {row['Summary']}
+                      </a>
+                      <div className="text-xs text-berkeley-blue font-semibold">{row.years} years</div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* SIGs */}
+          <div className="bg-gradient-to-br from-california-gold/5 to-california-gold/10 rounded-xl p-4 border border-california-gold/30">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-8 h-8 bg-california-gold text-berkeley-blue rounded-full flex items-center justify-center text-sm font-bold">SIG</span>
+              <span className="font-semibold text-yellow-700">Special Interest Groups</span>
+            </div>
+            <div className="space-y-2">
+              {longestRunning.sigs.length === 0 ? (
+                <p className="text-sm text-gray-500 italic">No data available</p>
+              ) : (
+                longestRunning.sigs.map((row, idx) => (
+                  <div key={row['Issue']} className="flex items-start gap-2 text-sm bg-white rounded p-2">
+                    <span className="w-5 h-5 bg-california-gold/20 text-yellow-700 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">
+                      {idx + 1}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <a
+                        href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-gray-800 hover:text-yellow-600 block truncate"
+                        title={row['Summary']}
+                      >
+                        {row['Summary']}
+                      </a>
+                      <div className="text-xs text-yellow-700 font-semibold">{row.years} years</div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Committees */}
+          <div className="bg-gradient-to-br from-berkeley-blue-light/5 to-berkeley-blue-light/10 rounded-xl p-4 border border-berkeley-blue-light/30">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-8 h-8 bg-berkeley-blue-light text-white rounded-full flex items-center justify-center text-sm font-bold">HC</span>
+              <span className="font-semibold text-berkeley-blue-light">Committees</span>
+            </div>
+            <div className="space-y-2">
+              {longestRunning.committees.length === 0 ? (
+                <p className="text-sm text-gray-500 italic">No data available</p>
+              ) : (
+                longestRunning.committees.map((row, idx) => (
+                  <div key={row['Issue']} className="flex items-start gap-2 text-sm bg-white rounded p-2">
+                    <span className="w-5 h-5 bg-berkeley-blue-light/20 text-berkeley-blue-light rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">
+                      {idx + 1}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <a
+                        href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-gray-800 hover:text-berkeley-blue-light block truncate"
+                        title={row['Summary']}
+                      >
+                        {row['Summary']}
+                      </a>
+                      <div className="text-xs text-berkeley-blue-light font-semibold">{row.years} years</div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Summary Stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="bg-berkeley-blue text-white rounded-xl p-4 text-center">
@@ -2096,7 +2394,7 @@ function Footer() {
     <footer className="bg-berkeley-blue-dark text-white py-6 mt-auto">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
         <p className="text-berkeley-blue-light text-sm">
-          Technical Committees Explorer
+          Tech Committees Explorer
         </p>
       </div>
     </footer>
@@ -2170,7 +2468,7 @@ function App() {
               onClick={() => setActiveTab('graph')}
               icon={<GraphIcon />}
             >
-              Graph View
+              Hierarchy Explorer
             </TabButton>
             <TabButton
               active={activeTab === 'stats'}
