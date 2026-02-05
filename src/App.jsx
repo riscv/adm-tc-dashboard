@@ -66,6 +66,13 @@ const LinkIcon = () => (
   </svg>
 )
 
+const SendIcon = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path d="M22 2L11 13" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M22 2L15 22L11 13L2 9L22 2Z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+)
+
 const CopyIcon = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <rect x="9" y="9" width="13" height="13" rx="2" ry="2" strokeWidth="2"/>
@@ -354,6 +361,70 @@ function buildMailtoLink(row) {
   const subject = `[${row['Issue']}] ${row['Summary']}`
   params.push(`subject=${encodeURIComponent(subject)}`)
 
+  // Build email body with all details
+  const years = calculateYearsActive(row['Creation Date'])
+  const yearsText = years !== null ? (years < 1 ? `${Math.round(years * 12)} months` : `${years} years`) : ''
+
+  let body = `${row['Summary']} (${row['Issue']})\n`
+  body += `${'='.repeat(50)}\n\n`
+
+  body += `Status: ${row['Status'] || 'N/A'}\n`
+  if (yearsText) body += `Active: ${yearsText}\n`
+  if (row['Activity Level']) body += `Activity Level: ${row['Activity Level'].replace(/🔵|🟡|🔴/g, '').trim()}\n`
+  body += `\n`
+
+  // Leadership
+  body += `--- Leadership ---\n`
+  if (row['Chair']) {
+    body += `Chair: ${row['Chair']}${row['Is Acting Chair'] === 'Yes' ? ' (Acting)' : ''}\n`
+    if (row['Chair Affiliation']) body += `  Affiliation: ${row['Chair Affiliation']}\n`
+    if (row['Chair Email']) body += `  Email: ${row['Chair Email']}\n`
+  }
+  if (row['Vice-Chair']) {
+    body += `Vice-Chair: ${row['Vice-Chair']}${row['Is Acting Vice-Chair'] === 'Yes' ? ' (Acting)' : ''}\n`
+    if (row['Vice-Chair Affiliation']) body += `  Affiliation: ${row['Vice-Chair Affiliation']}\n`
+    if (row['Vice-Chair Email']) body += `  Email: ${row['Vice-Chair Email']}\n`
+  }
+  body += `\n`
+
+  // Governing Committee
+  if (row['Linked Issue Summary']) {
+    body += `--- Governing Committee ---\n`
+    body += `${row['Linked Issue Summary']}\n`
+    if (row['Linked Issue Chair']) {
+      body += `  Chair: ${row['Linked Issue Chair']}\n`
+      if (row['Linked Issue Chair Affiliation']) body += `    Affiliation: ${row['Linked Issue Chair Affiliation']}\n`
+      if (row['Linked Issue Chair Email']) body += `    Email: ${row['Linked Issue Chair Email']}\n`
+    }
+    if (row['Linked Issue Vice-Chair']) {
+      body += `  Vice-Chair: ${row['Linked Issue Vice-Chair']}\n`
+      if (row['Linked Issue Vice-Chair Affiliation']) body += `    Affiliation: ${row['Linked Issue Vice-Chair Affiliation']}\n`
+      if (row['Linked Issue Vice-Chair Email']) body += `    Email: ${row['Linked Issue Vice-Chair Email']}\n`
+    }
+    body += `\n`
+  }
+
+  // Resources / Links
+  body += `--- Resources ---\n`
+  if (row['Charter']) body += `Charter: ${row['Charter']}\n`
+  if (row['Confluence Space']) body += `Confluence: ${row['Confluence Space']}\n`
+  if (row['Mailing List']) body += `Mailing List: ${row['Mailing List']}\n`
+  if (row['Meeting Notes']) body += `Meeting Notes: ${row['Meeting Notes']}\n`
+  body += `Jira: https://riscv.atlassian.net/browse/${row['Issue']}\n`
+  body += `\n`
+
+  // Elections
+  if (row['Next Election Month'] && row['Next Election Year']) {
+    body += `--- Elections ---\n`
+    body += `Next Election: ${row['Next Election Month']} ${row['Next Election Year']}\n`
+    if (row['Last Election Month'] && row['Last Election Year']) {
+      body += `Last Election: ${row['Last Election Month']} ${row['Last Election Year']}\n`
+    }
+    body += `\n`
+  }
+
+  params.push(`body=${encodeURIComponent(body)}`)
+
   if (params.length > 0) {
     mailto += '?' + params.join('&')
   }
@@ -558,7 +629,18 @@ function IssueRow({ row, showEmails }) {
         </td>
       )}
       <td className="px-2 py-4">
-        <CopyButton row={row} showEmails={showEmails} />
+        <div className="flex items-center gap-1">
+          <CopyButton row={row} showEmails={showEmails} />
+          {mailto && (
+            <a
+              href={mailto}
+              className="p-1.5 rounded transition-colors text-gray-400 hover:text-berkeley-blue hover:bg-gray-100"
+              title="Email chairs"
+            >
+              <SendIcon />
+            </a>
+          )}
+        </div>
       </td>
     </tr>
   )
@@ -724,58 +806,80 @@ function ProposedView({ data }) {
     )
   }
 
-  const CommitteeCard = ({ row }) => (
-    <div className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow">
-      <a
-        href={buildJiraUrl(row['Issue'])}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="font-semibold text-berkeley-blue hover:text-california-gold transition-colors block"
-      >
-        {row['Summary']}
-      </a>
-      <div className="flex items-center gap-2 mt-1">
-        <span className="text-xs text-gray-500">{row['Issue']}</span>
-        {row['Linked Issue Summary'] && (
-          <span className="inline-block px-2 py-0.5 bg-berkeley-blue/10 text-berkeley-blue text-xs rounded-full">
-            {row['Linked Issue Summary']}
-          </span>
+  const CommitteeCard = ({ row }) => {
+    const mailto = buildMailtoLink(row)
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow">
+        <a
+          href={buildJiraUrl(row['Issue'])}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-semibold text-berkeley-blue hover:text-california-gold transition-colors block"
+        >
+          {row['Summary']}
+        </a>
+        <div className="flex items-center gap-2 mt-1">
+          <span className="text-xs text-gray-500">{row['Issue']}</span>
+          {row['Linked Issue Summary'] && (
+            <span className="inline-block px-2 py-0.5 bg-berkeley-blue/10 text-berkeley-blue text-xs rounded-full">
+              {row['Linked Issue Summary']}
+            </span>
+          )}
+        </div>
+        {/* Workflow Progress */}
+        <div className="mt-3 flex justify-center">
+          <div className="w-48">
+            <WorkflowProgress currentStatus={row['Status']} />
+          </div>
+        </div>
+        {(row['Chair'] || row['Vice-Chair']) && (
+          <div className="mt-3 pt-3 border-t border-gray-100 grid grid-cols-2 gap-3 text-sm">
+            {row['Chair'] && (
+              <div>
+                <div className={`text-xs uppercase tracking-wide font-medium ${row['Is Acting Chair'] === 'Yes' ? 'text-orange-600' : 'text-berkeley-blue'}`}>
+                  {row['Is Acting Chair'] === 'Yes' ? 'Acting Chair' : 'Chair'}
+                </div>
+                <div className="font-medium text-gray-800">{row['Chair']}</div>
+                {row['Chair Affiliation'] && (
+                  <div className="text-xs text-gray-500">{row['Chair Affiliation']}</div>
+                )}
+                {row['Chair Email'] && (
+                  <div className="text-xs text-gray-400">{row['Chair Email']}</div>
+                )}
+              </div>
+            )}
+            {row['Vice-Chair'] && (
+              <div>
+                <div className={`text-xs uppercase tracking-wide font-medium ${row['Is Acting Vice-Chair'] === 'Yes' ? 'text-orange-600' : 'text-berkeley-blue'}`}>
+                  {row['Is Acting Vice-Chair'] === 'Yes' ? 'Acting Vice-Chair' : 'Vice-Chair'}
+                </div>
+                <div className="font-medium text-gray-800">{row['Vice-Chair']}</div>
+                {row['Vice-Chair Affiliation'] && (
+                  <div className="text-xs text-gray-500">{row['Vice-Chair Affiliation']}</div>
+                )}
+                {row['Vice-Chair Email'] && (
+                  <div className="text-xs text-gray-400">{row['Vice-Chair Email']}</div>
+                )}
+              </div>
+            )}
+          </div>
         )}
-      </div>
-      {/* Workflow Progress */}
-      <div className="mt-3 flex justify-center">
-        <div className="w-48">
-          <WorkflowProgress currentStatus={row['Status']} />
-        </div>
-      </div>
-      {(row['Chair'] || row['Vice-Chair']) && (
-        <div className="mt-3 pt-3 border-t border-gray-100 grid grid-cols-2 gap-3 text-sm">
-          {row['Chair'] && (
-            <div>
-              <div className={`text-xs uppercase tracking-wide font-medium ${row['Is Acting Chair'] === 'Yes' ? 'text-orange-600' : 'text-berkeley-blue'}`}>
-                {row['Is Acting Chair'] === 'Yes' ? 'Acting Chair' : 'Chair'}
-              </div>
-              <div className="font-medium text-gray-800">{row['Chair']}</div>
-              {row['Chair Affiliation'] && (
-                <div className="text-xs text-gray-500">{row['Chair Affiliation']}</div>
-              )}
-            </div>
-          )}
-          {row['Vice-Chair'] && (
-            <div>
-              <div className={`text-xs uppercase tracking-wide font-medium ${row['Is Acting Vice-Chair'] === 'Yes' ? 'text-orange-600' : 'text-berkeley-blue'}`}>
-                {row['Is Acting Vice-Chair'] === 'Yes' ? 'Acting Vice-Chair' : 'Vice-Chair'}
-              </div>
-              <div className="font-medium text-gray-800">{row['Vice-Chair']}</div>
-              {row['Vice-Chair Affiliation'] && (
-                <div className="text-xs text-gray-500">{row['Vice-Chair Affiliation']}</div>
-              )}
-            </div>
+        {/* Action buttons */}
+        <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-end gap-1">
+          <CopyButton row={row} showEmails={true} />
+          {mailto && (
+            <a
+              href={mailto}
+              className="p-1.5 rounded transition-colors text-gray-400 hover:text-berkeley-blue hover:bg-gray-100"
+              title="Email chairs"
+            >
+              <SendIcon />
+            </a>
           )}
         </div>
-      )}
-    </div>
-  )
+      </div>
+    )
+  }
 
   return (
     <div className="p-6 space-y-8">
