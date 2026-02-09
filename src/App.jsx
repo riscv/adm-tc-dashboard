@@ -1648,30 +1648,54 @@ function StatisticsView({ data }) {
   }, [companyPositions, companySearch])
 
   // Calculate TGs approaching 2 years
+  // Uses the most recent date between Recharter Approval Date and Group Creation Date.
+  // If Recharter Approval Date is empty, falls back to Group Creation Date.
+  // If both are empty, the item is excluded.
   const tgsApproaching2Years = useMemo(() => {
     const now = new Date()
     const results = { oneMonth: [], twoMonths: [], threeMonths: [], sixMonths: [] }
 
     data.forEach(row => {
-      if (!row['Creation Date']) return
-      const created = new Date(row['Creation Date'])
-      if (isNaN(created.getTime())) return
+      const creationDateStr = row['Creation Date']
+      const recharterDateStr = row['Recharter Approval Date']
 
-      // Calculate when they hit 2 years
-      const twoYearDate = new Date(created)
+      // Skip if both dates are empty
+      if (!creationDateStr && !recharterDateStr) return
+
+      // Parse both dates
+      const creationDate = creationDateStr ? new Date(creationDateStr) : null
+      const recharterDate = recharterDateStr ? new Date(recharterDateStr) : null
+
+      // Validate parsed dates
+      const validCreation = creationDate && !isNaN(creationDate.getTime()) ? creationDate : null
+      const validRecharter = recharterDate && !isNaN(recharterDate.getTime()) ? recharterDate : null
+
+      // Skip if no valid dates
+      if (!validCreation && !validRecharter) return
+
+      // Pick the most recent date between the two
+      let referenceDate
+      if (validRecharter && validCreation) {
+        referenceDate = validRecharter > validCreation ? validRecharter : validCreation
+      } else {
+        referenceDate = validCreation || validRecharter
+      }
+
+      // Calculate when they hit 2 years from the reference date
+      const twoYearDate = new Date(referenceDate)
       twoYearDate.setFullYear(twoYearDate.getFullYear() + 2)
 
       const diffMs = twoYearDate - now
       const diffDays = diffMs / (1000 * 60 * 60 * 24)
 
       if (diffDays > 0 && diffDays <= 30) {
-        results.oneMonth.push({ ...row, daysUntil: Math.ceil(diffDays), twoYearDate })
+        results.oneMonth.push({ ...row, daysUntil: Math.ceil(diffDays), twoYearDate, referenceDate })
       } else if (diffDays > 30 && diffDays <= 60) {
-        results.twoMonths.push({ ...row, daysUntil: Math.ceil(diffDays), twoYearDate })
+        results.twoMonths.push({ ...row, daysUntil: Math.ceil(diffDays), twoYearDate, referenceDate })
       } else if (diffDays > 60 && diffDays <= 90) {
-        results.threeMonths.push({ ...row, daysUntil: Math.ceil(diffDays), twoYearDate })
+        results.threeMonths.push({ ...row, daysUntil: Math.ceil(diffDays), twoYearDate, referenceDate })
       } else if (diffDays > 90 && diffDays <= 180) {
-        results.sixMonths.push({ ...row, daysUntil: Math.ceil(diffDays), twoYearDate })
+        results.sixMonths.push({ ...row, daysUntil: Math.ceil(diffDays), twoYearDate, referenceDate })
       }
     })
 
@@ -2002,7 +2026,7 @@ function StatisticsView({ data }) {
       {/* TGs Approaching 2 Years */}
       <div>
         <h2 className="text-xl font-bold text-berkeley-blue mb-4">Groups Approaching 2 Years</h2>
-        <p className="text-gray-600 text-sm mb-6">Technical Groups that will reach their 2-year milestone soon</p>
+        <p className="text-gray-600 text-sm mb-6">Technical Groups that will reach their 2-year milestone soon (based on most recent of Recharter Approval Date or Group Creation Date)</p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* 1 Month */}
@@ -2028,6 +2052,11 @@ function StatisticsView({ data }) {
                       {row['Summary']}
                     </a>
                     <div className="text-xs text-gray-500">{row.daysUntil} days</div>
+                    <div className="text-xs text-gray-400">
+                      {row['Recharter Approval Date'] && new Date(row['Recharter Approval Date']).getTime() === row.referenceDate.getTime()
+                        ? `Rechartered: ${row['Recharter Approval Date']}`
+                        : `Created: ${row['Creation Date']}`}
+                    </div>
                   </div>
                 ))
               )}
@@ -2057,6 +2086,11 @@ function StatisticsView({ data }) {
                       {row['Summary']}
                     </a>
                     <div className="text-xs text-gray-500">{row.daysUntil} days</div>
+                    <div className="text-xs text-gray-400">
+                      {row['Recharter Approval Date'] && new Date(row['Recharter Approval Date']).getTime() === row.referenceDate.getTime()
+                        ? `Rechartered: ${row['Recharter Approval Date']}`
+                        : `Created: ${row['Creation Date']}`}
+                    </div>
                   </div>
                 ))
               )}
@@ -2086,6 +2120,11 @@ function StatisticsView({ data }) {
                       {row['Summary']}
                     </a>
                     <div className="text-xs text-gray-500">{row.daysUntil} days</div>
+                    <div className="text-xs text-gray-400">
+                      {row['Recharter Approval Date'] && new Date(row['Recharter Approval Date']).getTime() === row.referenceDate.getTime()
+                        ? `Rechartered: ${row['Recharter Approval Date']}`
+                        : `Created: ${row['Creation Date']}`}
+                    </div>
                   </div>
                 ))
               )}
@@ -2115,6 +2154,11 @@ function StatisticsView({ data }) {
                       {row['Summary']}
                     </a>
                     <div className="text-xs text-gray-500">{row.daysUntil} days</div>
+                    <div className="text-xs text-gray-400">
+                      {row['Recharter Approval Date'] && new Date(row['Recharter Approval Date']).getTime() === row.referenceDate.getTime()
+                        ? `Rechartered: ${row['Recharter Approval Date']}`
+                        : `Created: ${row['Creation Date']}`}
+                    </div>
                   </div>
                 ))
               )}
@@ -2406,7 +2450,43 @@ function App() {
   const [data, setData] = useState([])
   const [filteredData, setFilteredData] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
-  const [activeTab, setActiveTab] = useState('table')
+  const [activeTab, setActiveTab] = useState(() => {
+    const search = window.location.search
+    if (search.includes('active_committees')) return 'table'
+    if (search.includes('hierarcjy') || search.includes('hierarchy')) return 'graph'
+    if (search.includes('statistics')) return 'stats'
+    if (search.includes('proposed')) return 'proposed'
+    return 'table'
+  })
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const search = window.location.search
+      if (search.includes('active_committees')) setActiveTab('table')
+      else if (search.includes('hierarcjy') || search.includes('hierarchy')) setActiveTab('graph')
+      else if (search.includes('statistics')) setActiveTab('stats')
+      else if (search.includes('proposed')) setActiveTab('proposed')
+      else setActiveTab('table')
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  useEffect(() => {
+    let queryParam = ''
+    switch (activeTab) {
+      case 'table': queryParam = '?active_committees'; break;
+      case 'graph': queryParam = '?hierarcjy'; break;
+      case 'stats': queryParam = '?statistics'; break;
+      case 'proposed': queryParam = '?proposed'; break;
+      default: queryParam = '?active_committees';
+    }
+
+    if (window.location.search !== queryParam) {
+      const newUrl = window.location.pathname + queryParam
+      window.history.pushState(null, '', newUrl)
+    }
+  }, [activeTab])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 

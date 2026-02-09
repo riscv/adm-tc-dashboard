@@ -72,6 +72,7 @@ CF_LAST_ELECTION_MONTH = "customfield_10311"  # Last Election Month
 CF_LAST_ELECTION_YEAR = "customfield_10310"  # Last Election Year
 CF_IS_ACTING_CHAIR = "customfield_10094"  # Is Acting Chair?
 CF_IS_ACTING_VICE_CHAIR = "customfield_10102"  # Is Acting Vice-Chair?
+CF_RECHARTER_APPROVAL_DATE = "customfield_10643"  # Recharter Approval Date
 
 # Link types we're interested in (inward link names)
 LINK_TYPES_OF_INTEREST = [
@@ -102,6 +103,7 @@ ISSUE_FIELDS = [
     CF_LAST_ELECTION_YEAR,
     CF_IS_ACTING_CHAIR,
     CF_IS_ACTING_VICE_CHAIR,
+    CF_RECHARTER_APPROVAL_DATE,
 ]
 
 # =========================
@@ -396,6 +398,9 @@ def process_issue(issue_data: Dict) -> Dict:
     is_acting_chair = parse_checkbox(is_acting_chair_raw)
     is_acting_vice_chair = parse_checkbox(is_acting_vice_chair_raw)
 
+    # Extract recharter approval date
+    recharter_approval_date = fields.get(CF_RECHARTER_APPROVAL_DATE)  # Date string like "2023-01-15"
+
     return {
         "key": issue_key,
         "summary": fields.get("summary", ""),
@@ -420,6 +425,7 @@ def process_issue(issue_data: Dict) -> Dict:
         "last_election_year": last_election_year,
         "is_acting_chair": is_acting_chair,
         "is_acting_vice_chair": is_acting_vice_chair,
+        "recharter_approval_date": recharter_approval_date,
     }
 
 
@@ -660,6 +666,7 @@ def save_grouped_csv(results: List[Dict], filepath: str) -> None:
                     "Summary": issue["summary"],
                     "Status": issue.get("status") or "",
                     "Creation Date": issue.get("creation_date") or "",
+                    "Recharter Approval Date": issue.get("recharter_approval_date") or "",
                     "Charter": issue.get("charter") or "",
                     "Confluence Space": issue.get("confluence_space") or "",
                     "Mailing List": issue.get("mailing_list") or "",
@@ -694,6 +701,7 @@ def save_grouped_csv(results: List[Dict], filepath: str) -> None:
                 "Summary": issue["summary"],
                 "Status": issue.get("status") or "",
                 "Creation Date": issue.get("creation_date") or "",
+                "Recharter Approval Date": issue.get("recharter_approval_date") or "",
                 "Charter": issue.get("charter") or "",
                 "Confluence Space": issue.get("confluence_space") or "",
                 "Mailing List": issue.get("mailing_list") or "",
@@ -732,6 +740,7 @@ def save_grouped_csv(results: List[Dict], filepath: str) -> None:
             "Summary",
             "Status",
             "Creation Date",
+            "Recharter Approval Date",
             "Charter",
             "Confluence Space",
             "Mailing List",
