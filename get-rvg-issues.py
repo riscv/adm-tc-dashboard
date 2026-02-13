@@ -73,6 +73,7 @@ CF_LAST_ELECTION_YEAR = "customfield_10310"  # Last Election Year
 CF_IS_ACTING_CHAIR = "customfield_10094"  # Is Acting Chair?
 CF_IS_ACTING_VICE_CHAIR = "customfield_10102"  # Is Acting Vice-Chair?
 CF_RECHARTER_APPROVAL_DATE = "customfield_10643"  # Recharter Approval Date
+CF_PARTICIPATION_VOTING = "customfield_10443"  # Participation & Voting Rights
 
 # Link types we're interested in (inward link names)
 LINK_TYPES_OF_INTEREST = [
@@ -104,6 +105,7 @@ ISSUE_FIELDS = [
     CF_IS_ACTING_CHAIR,
     CF_IS_ACTING_VICE_CHAIR,
     CF_RECHARTER_APPROVAL_DATE,
+    CF_PARTICIPATION_VOTING,
 ]
 
 # =========================
@@ -401,6 +403,9 @@ def process_issue(issue_data: Dict) -> Dict:
     # Extract recharter approval date
     recharter_approval_date = fields.get(CF_RECHARTER_APPROVAL_DATE)  # Date string like "2023-01-15"
 
+    # Extract participation & voting rights
+    participation_voting = extract_url_field(fields.get(CF_PARTICIPATION_VOTING))
+
     return {
         "key": issue_key,
         "summary": fields.get("summary", ""),
@@ -426,6 +431,7 @@ def process_issue(issue_data: Dict) -> Dict:
         "is_acting_chair": is_acting_chair,
         "is_acting_vice_chair": is_acting_vice_chair,
         "recharter_approval_date": recharter_approval_date,
+        "participation_voting": participation_voting,
     }
 
 
@@ -672,6 +678,7 @@ def save_grouped_csv(results: List[Dict], filepath: str) -> None:
                     "Mailing List": issue.get("mailing_list") or "",
                     "Activity Level": issue.get("activity_level") or "",
                     "Meeting Notes": issue.get("meeting_notes") or "",
+                    "Participation & Voting Rights": issue.get("participation_voting") or "",
                     "Next Election Month": issue.get("next_election_month") or "",
                     "Next Election Year": issue.get("next_election_year") or "",
                     "Last Election Month": issue.get("last_election_month") or "",
@@ -692,6 +699,7 @@ def save_grouped_csv(results: List[Dict], filepath: str) -> None:
                     "Linked Issue Vice-Chair Email": li["vice_chair_email"] or "",
                     "Linked Issue Vice-Chair Affiliation": li.get("vice_chair_affiliation") or "",
                     "Linked Issue Mailing List": li.get("mailing_list") or "",
+                    "Linked Issue Participation & Voting Rights": li.get("participation_voting") or "",
                 }
                 rows.append(row)
         else:
@@ -707,6 +715,7 @@ def save_grouped_csv(results: List[Dict], filepath: str) -> None:
                 "Mailing List": issue.get("mailing_list") or "",
                 "Activity Level": issue.get("activity_level") or "",
                 "Meeting Notes": issue.get("meeting_notes") or "",
+                "Participation & Voting Rights": issue.get("participation_voting") or "",
                 "Next Election Month": issue.get("next_election_month") or "",
                 "Next Election Year": issue.get("next_election_year") or "",
                 "Last Election Month": issue.get("last_election_month") or "",
@@ -727,6 +736,7 @@ def save_grouped_csv(results: List[Dict], filepath: str) -> None:
                 "Linked Issue Vice-Chair Email": "",
                 "Linked Issue Vice-Chair Affiliation": "",
                 "Linked Issue Mailing List": "",
+                "Linked Issue Participation & Voting Rights": "",
             }
             rows.append(row)
 
@@ -746,6 +756,7 @@ def save_grouped_csv(results: List[Dict], filepath: str) -> None:
             "Mailing List",
             "Activity Level",
             "Meeting Notes",
+            "Participation & Voting Rights",
             "Next Election Month",
             "Next Election Year",
             "Last Election Month",
@@ -766,6 +777,7 @@ def save_grouped_csv(results: List[Dict], filepath: str) -> None:
             "Linked Issue Vice-Chair Email",
             "Linked Issue Vice-Chair Affiliation",
             "Linked Issue Mailing List",
+            "Linked Issue Participation & Voting Rights",
         ]
         with open(filepath, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)

@@ -166,7 +166,7 @@ function GoverningCommitteePill({ row }) {
 
   if (!row['Linked Issue Summary']) return null
 
-  const hasDetails = row['Linked Issue Chair'] || row['Linked Issue Vice-Chair'] || row['Linked Issue Mailing List']
+  const hasDetails = row['Linked Issue Chair'] || row['Linked Issue Vice-Chair'] || row['Linked Issue Mailing List'] || row['Linked Issue Participation & Voting Rights']
 
   const handleMouseEnter = () => {
     if (pillRef.current) {
@@ -231,6 +231,20 @@ function GoverningCommitteePill({ row }) {
               </a>
             </div>
           )}
+
+          {row['Linked Issue Participation & Voting Rights'] && (
+            <div className={row['Linked Issue Mailing List'] ? "mt-2" : "mt-3 pt-2 border-t border-gray-100"}>
+              <a
+                href={row['Linked Issue Participation & Voting Rights']}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-berkeley-blue-light hover:text-california-gold"
+              >
+                <LinkIcon />
+                <span>Participants & Voters</span>
+              </a>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -280,6 +294,7 @@ function CopyButton({ row, showEmails }) {
     if (row['Confluence Space']) text += `  Confluence: ${row['Confluence Space']}\n`
     if (row['Mailing List']) text += `  Mailing List: ${row['Mailing List']}\n`
     if (row['Meeting Notes']) text += `  Meeting Notes: ${row['Meeting Notes']}\n`
+    if (row['Participation & Voting Rights']) text += `  Participants & Voters: ${row['Participation & Voting Rights']}\n`
     text += `  Jira: https://riscv.atlassian.net/browse/${row['Issue']}\n`
 
     try {
@@ -410,6 +425,7 @@ function buildMailtoLink(row) {
   if (row['Confluence Space']) body += `Confluence: ${row['Confluence Space']}\n`
   if (row['Mailing List']) body += `Mailing List: ${row['Mailing List']}\n`
   if (row['Meeting Notes']) body += `Meeting Notes: ${row['Meeting Notes']}\n`
+  if (row['Participation & Voting Rights']) body += `Participants & Voters: ${row['Participation & Voting Rights']}\n`
   body += `Jira: https://riscv.atlassian.net/browse/${row['Issue']}\n`
   body += `\n`
 
@@ -525,7 +541,7 @@ function IssueRow({ row, showEmails }) {
   const mailto = buildMailtoLink(row)
   const jiraUrl = buildJiraUrl(row['Issue'])
 
-  const hasResources = row['Charter'] || row['Confluence Space'] || row['Mailing List'] || row['Meeting Notes']
+  const hasResources = row['Charter'] || row['Confluence Space'] || row['Mailing List'] || row['Meeting Notes'] || row['Participation & Voting Rights']
 
   return (
     <tr className="hover:bg-california-gold/5 transition-colors">
@@ -549,6 +565,7 @@ function IssueRow({ row, showEmails }) {
             <ResourceLink href={jiraUrl} label="Details" />
             <ResourceLink href={row['Mailing List']} label="Mailing List" />
             <ResourceLink href={row['Meeting Notes']} label="Meeting Notes" />
+            <ResourceLink href={row['Participation & Voting Rights']} label="Participants & Voters" />
           </div>
         )}
       </td>
