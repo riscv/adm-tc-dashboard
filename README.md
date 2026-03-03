@@ -7,6 +7,7 @@ A React-based viewer for RISC-V Technical Committees, providing table, graph, an
 - **Table View**: Searchable, grouped table of all technical committees
 - **Graph View**: Interactive D3.js force-directed graph showing organizational hierarchy
 - **Statistics View**: Company positions, upcoming elections, groups approaching 2 years, and longest running committees
+- **Trend View**: Activity distribution, watchlist, global health score, and momentum trend
 - **Email Integration**: Quick mailto links to contact chairs and vice-chairs
 - **Responsive Design**: Works on desktop and mobile devices
 - **RISC-V Branding**: Uses official California Gold and Berkeley Blue color scheme

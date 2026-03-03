@@ -32,6 +32,13 @@ const ChartIcon = () => (
   </svg>
 )
 
+const TrendIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path d="M3 17l6-6 4 4 8-8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M16 7h5v5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+)
+
 const SearchIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <circle cx="11" cy="11" r="8" strokeWidth="2"/>
@@ -115,19 +122,116 @@ function StatusBadge({ status }) {
   )
 }
 
+const ACTIVITY_META = {
+  veryActive: {
+    key: 'veryActive',
+    label: 'Very Active',
+    dot: '🟢',
+    score: 100,
+    badgeClass: 'bg-green-100 text-green-700',
+    panelClass: 'bg-green-50 border-green-200',
+    textClass: 'text-green-700',
+    barClass: 'bg-green-500',
+  },
+  active: {
+    key: 'active',
+    label: 'Active',
+    dot: '🔵',
+    score: 70,
+    badgeClass: 'bg-blue-100 text-blue-700',
+    panelClass: 'bg-blue-50 border-blue-200',
+    textClass: 'text-blue-700',
+    barClass: 'bg-blue-500',
+  },
+  low: {
+    key: 'low',
+    label: 'Low',
+    dot: '🟡',
+    score: 35,
+    badgeClass: 'bg-yellow-100 text-yellow-700',
+    panelClass: 'bg-yellow-50 border-yellow-200',
+    textClass: 'text-yellow-700',
+    barClass: 'bg-yellow-500',
+  },
+  inactive: {
+    key: 'inactive',
+    label: 'Inactive',
+    dot: '🔴',
+    score: 0,
+    badgeClass: 'bg-red-100 text-red-700',
+    panelClass: 'bg-red-50 border-red-200',
+    textClass: 'text-red-700',
+    barClass: 'bg-red-500',
+  },
+  unknown: {
+    key: 'unknown',
+    label: 'Unspecified',
+    dot: '⚪',
+    score: 50,
+    badgeClass: 'bg-gray-100 text-gray-600',
+    panelClass: 'bg-gray-50 border-gray-200',
+    textClass: 'text-gray-700',
+    barClass: 'bg-gray-400',
+  },
+}
+
+const MONTH_TO_NUMBER = {
+  'January': 1,
+  'February': 2,
+  'March': 3,
+  'April': 4,
+  'May': 5,
+  'June': 6,
+  'July': 7,
+  'August': 8,
+  'September': 9,
+  'October': 10,
+  'November': 11,
+  'December': 12,
+}
+
+function normalizeActivityLevel(level) {
+  if (!level) return 'unknown'
+  const raw = String(level).trim()
+  const normalized = raw
+    .replace(/[🟢🔵🟡🔴]/g, '')
+    .trim()
+    .toLowerCase()
+
+  if (raw.includes('🟢') || normalized.includes('very active') || normalized === 'high' || normalized.includes('high activity')) {
+    return 'veryActive'
+  }
+  if (raw.includes('🔵') || normalized === 'active' || normalized === 'medium' || normalized.includes('medium activity')) {
+    return 'active'
+  }
+  if (raw.includes('🟡') || normalized === 'low' || normalized.includes('low activity')) {
+    return 'low'
+  }
+  if (raw.includes('🔴') || normalized === 'inactive') {
+    return 'inactive'
+  }
+  return 'unknown'
+}
+
+function getActivityMeta(level) {
+  const key = normalizeActivityLevel(level)
+  return ACTIVITY_META[key] || ACTIVITY_META.unknown
+}
+
+function formatActivityLevel(level, withDot = false) {
+  if (!level) return ''
+  const meta = getActivityMeta(level)
+  if (meta.key === 'unknown') return String(level).trim()
+  return withDot ? `${meta.dot} ${meta.label}` : meta.label
+}
+
 // Activity level badge component
 function ActivityBadge({ level }) {
   if (!level) return null
-  const colors = {
-    'High': 'bg-green-100 text-green-700',
-    'Medium': 'bg-yellow-100 text-yellow-700',
-    'Low': 'bg-orange-100 text-orange-700',
-    'Inactive': 'bg-gray-100 text-gray-500',
-  }
-  const colorClass = colors[level] || 'bg-gray-100 text-gray-600'
+  const meta = getActivityMeta(level)
   return (
-    <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded ${colorClass}`}>
-      {level}
+    <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded ${meta.badgeClass}`}>
+      {formatActivityLevel(level, true)}
     </span>
   )
 }
@@ -258,7 +362,7 @@ function CopyButton({ row, showEmails }) {
     let text = `${row['Summary']} (${row['Issue']})\n`
     text += `Status: ${row['Status'] || 'N/A'}\n`
     if (yearsText) text += `Active: ${yearsText}\n`
-    if (row['Activity Level']) text += `Activity Level: ${row['Activity Level']}\n`
+    if (row['Activity Level']) text += `Activity Level: ${formatActivityLevel(row['Activity Level'])}\n`
     text += `\n`
 
     if (row['Chair']) {
@@ -381,7 +485,7 @@ function buildMailtoLink(row) {
 
   body += `Status: ${row['Status'] || 'N/A'}\n`
   if (yearsText) body += `Active: ${yearsText}\n`
-  if (row['Activity Level']) body += `Activity Level: ${row['Activity Level'].replace(/🔵|🟡|🔴/g, '').trim()}\n`
+  if (row['Activity Level']) body += `Activity Level: ${formatActivityLevel(row['Activity Level'])}\n`
   body += `\n`
 
   // Leadership
@@ -2137,6 +2241,321 @@ function StatisticsView({ data }) {
   )
 }
 
+function TrendView({ data }) {
+  const activeRows = useMemo(
+    () => data.filter(row => row['Status'] === 'Active'),
+    [data]
+  )
+
+  const activitySummary = useMemo(() => {
+    const categories = Object.keys(ACTIVITY_META).reduce((acc, key) => {
+      acc[key] = { ...ACTIVITY_META[key], count: 0 }
+      return acc
+    }, {})
+
+    activeRows.forEach(row => {
+      const meta = getActivityMeta(row['Activity Level'])
+      categories[meta.key].count += 1
+    })
+
+    const total = activeRows.length
+    const knownTotal = Math.max(total - categories.unknown.count, 0)
+    const weightedScore =
+      categories.veryActive.count * ACTIVITY_META.veryActive.score +
+      categories.active.count * ACTIVITY_META.active.score +
+      categories.low.count * ACTIVITY_META.low.score +
+      categories.inactive.count * ACTIVITY_META.inactive.score
+
+    return {
+      categories,
+      total,
+      healthScore: knownTotal > 0 ? Math.round(weightedScore / knownTotal) : 0,
+    }
+  }, [activeRows])
+
+  const globalStatus = useMemo(() => {
+    if (activitySummary.total === 0) {
+      return {
+        label: 'No Data',
+        description: 'No active committees with activity data were found.',
+        pillClass: 'bg-gray-100 text-gray-700 border-gray-200',
+        cardClass: 'from-gray-50 to-white border-gray-200',
+      }
+    }
+
+    const score = activitySummary.healthScore
+    if (score >= 80) {
+      return {
+        label: 'Healthy',
+        description: 'Most committees are Active or Very Active.',
+        pillClass: 'bg-green-100 text-green-700 border-green-200',
+        cardClass: 'from-green-50 to-emerald-50 border-green-200',
+      }
+    }
+    if (score >= 60) {
+      return {
+        label: 'Stable',
+        description: 'Activity is acceptable, but there are areas to monitor.',
+        pillClass: 'bg-blue-100 text-blue-700 border-blue-200',
+        cardClass: 'from-blue-50 to-cyan-50 border-blue-200',
+      }
+    }
+    if (score >= 40) {
+      return {
+        label: 'Watch',
+        description: 'A meaningful part of committees has low momentum.',
+        pillClass: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+        cardClass: 'from-yellow-50 to-amber-50 border-yellow-200',
+      }
+    }
+    return {
+      label: 'At Risk',
+      description: 'Low or inactive committees are dominating the portfolio.',
+      pillClass: 'bg-red-100 text-red-700 border-red-200',
+      cardClass: 'from-red-50 to-rose-50 border-red-200',
+    }
+  }, [activitySummary.healthScore, activitySummary.total])
+
+  const creationTrend = useMemo(() => {
+    const now = new Date()
+    const recentStart = new Date(now)
+    recentStart.setMonth(recentStart.getMonth() - 6)
+
+    const previousStart = new Date(now)
+    previousStart.setMonth(previousStart.getMonth() - 12)
+
+    let recent = 0
+    let previous = 0
+
+    activeRows.forEach(row => {
+      if (!row['Creation Date']) return
+      const created = new Date(row['Creation Date'])
+      if (isNaN(created.getTime())) return
+      if (created >= recentStart) {
+        recent += 1
+      } else if (created >= previousStart) {
+        previous += 1
+      }
+    })
+
+    const delta = recent - previous
+    const pctChange = previous > 0 ? Math.round((delta / previous) * 100) : null
+    const direction = delta > 0 ? 'up' : (delta < 0 ? 'down' : 'flat')
+
+    return { recent, previous, delta, pctChange, direction }
+  }, [activeRows])
+
+  const statusFlow = useMemo(() => {
+    const counts = {
+      active: 0,
+      proposing: 0,
+      structuring: 0,
+    }
+
+    data.forEach(row => {
+      if (row['Status'] === 'Active') counts.active += 1
+      if (row['Status'] === 'Proposing') counts.proposing += 1
+      if (row['Status'] === 'Structuring and Chartering') counts.structuring += 1
+    })
+
+    return counts
+  }, [data])
+
+  const watchList = useMemo(() => {
+    const now = new Date()
+    const currentMonth = now.getMonth() + 1
+    const currentYear = now.getFullYear()
+
+    return activeRows
+      .map(row => {
+        const meta = getActivityMeta(row['Activity Level'])
+        const reasons = []
+        let priority = 0
+
+        if (meta.key === 'inactive') {
+          reasons.push('Inactive activity level')
+          priority += 4
+        } else if (meta.key === 'low') {
+          reasons.push('Low activity level')
+          priority += 3
+        } else if (meta.key === 'unknown') {
+          reasons.push('Activity level missing')
+          priority += 2
+        }
+
+        if (!row['Chair'] || !row['Vice-Chair']) {
+          reasons.push('Leadership field incomplete')
+          priority += 1
+        }
+
+        const nextMonthRaw = row['Next Election Month']
+        const nextYearNum = parseInt(row['Next Election Year'], 10)
+        const nextMonthNum = MONTH_TO_NUMBER[nextMonthRaw] || parseInt(nextMonthRaw, 10)
+        if (nextMonthNum && nextYearNum) {
+          const monthsUntil = (nextYearNum - currentYear) * 12 + (nextMonthNum - currentMonth)
+          if (monthsUntil < 0) {
+            reasons.push('Election date is overdue')
+            priority += 2
+          } else if (monthsUntil === 0) {
+            reasons.push('Election due this month')
+            priority += 2
+          }
+        }
+
+        if (reasons.length === 0) return null
+        return { row, reasons: reasons.slice(0, 2), priority, meta }
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.priority - a.priority || (a.row['Summary'] || '').localeCompare(b.row['Summary'] || ''))
+      .slice(0, 10)
+  }, [activeRows])
+
+  const categoryKeys = ['veryActive', 'active', 'low', 'inactive']
+  if (activitySummary.categories.unknown.count > 0) {
+    categoryKeys.push('unknown')
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className={`rounded-xl border bg-gradient-to-br p-5 ${globalStatus.cardClass}`}>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-bold text-berkeley-blue">Global Status</h2>
+            <span className={`px-3 py-1 text-xs font-semibold border rounded-full ${globalStatus.pillClass}`}>
+              {globalStatus.label}
+            </span>
+          </div>
+          <div className="text-4xl font-bold text-berkeley-blue">{activitySummary.healthScore}</div>
+          <p className="text-xs text-gray-500 mt-1">Health score (0-100)</p>
+          <p className="text-sm text-gray-700 mt-3">{globalStatus.description}</p>
+        </div>
+
+        <div className="rounded-xl border border-gray-200 bg-white p-5">
+          <h2 className="text-lg font-bold text-berkeley-blue mb-3">Momentum Trend</h2>
+          <div className="text-2xl font-bold text-gray-800">
+            {creationTrend.direction === 'up' && (
+              <span className="text-green-700">
+                +{creationTrend.delta} more committee{creationTrend.delta !== 1 ? 's' : ''}
+              </span>
+            )}
+            {creationTrend.direction === 'down' && (
+              <span className="text-red-700">
+                {Math.abs(creationTrend.delta)} fewer committee{Math.abs(creationTrend.delta) !== 1 ? 's' : ''}
+              </span>
+            )}
+            {creationTrend.direction === 'flat' && (
+              <span className="text-gray-700">No net change</span>
+            )}
+          </div>
+          <p className="text-sm text-gray-600 mt-1">
+            New active committees in last 6 months: {creationTrend.recent}
+          </p>
+          <p className="text-xs text-gray-500 mt-2">
+            Previous 6 months: {creationTrend.previous}
+            {creationTrend.pctChange !== null && ` (${creationTrend.pctChange > 0 ? '+' : ''}${creationTrend.pctChange}%)`}
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-gray-200 bg-white p-5">
+          <h2 className="text-lg font-bold text-berkeley-blue mb-3">Pipeline</h2>
+          <div className="space-y-2 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-gray-600">Proposing</span>
+              <span className="font-semibold text-orange-700">{statusFlow.proposing}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-gray-600">Structuring & Chartering</span>
+              <span className="font-semibold text-blue-700">{statusFlow.structuring}</span>
+            </div>
+            <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+              <span className="text-gray-700 font-medium">Active</span>
+              <span className="font-bold text-green-700">{statusFlow.active}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-white p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-berkeley-blue">Activity Distribution</h2>
+          <span className="text-sm text-gray-600">
+            {activitySummary.total} Active Committee{activitySummary.total !== 1 ? 's' : ''}
+          </span>
+        </div>
+
+        <div className="h-3 w-full rounded-full bg-gray-100 overflow-hidden mb-4 flex">
+          {categoryKeys.map(key => {
+            const item = activitySummary.categories[key]
+            if (activitySummary.total === 0 || item.count === 0) return null
+            return (
+              <div
+                key={`bar-${key}`}
+                className={item.barClass}
+                style={{ width: `${(item.count / activitySummary.total) * 100}%` }}
+                title={`${item.label}: ${item.count}`}
+              />
+            )
+          })}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          {categoryKeys.map(key => {
+            const item = activitySummary.categories[key]
+            const pct = activitySummary.total > 0 ? Math.round((item.count / activitySummary.total) * 100) : 0
+            return (
+              <div key={key} className={`border rounded-lg p-3 ${item.panelClass}`}>
+                <div className="text-sm font-medium text-gray-700">{item.dot} {item.label}</div>
+                <div className={`text-2xl font-bold mt-1 ${item.textClass}`}>{item.count}</div>
+                <div className="text-xs text-gray-500">{pct}% of active committees</div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-white p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-berkeley-blue">Committees To Pay Attention</h2>
+          <span className="text-sm text-gray-600">{watchList.length} flagged</span>
+        </div>
+
+        {watchList.length === 0 ? (
+          <p className="text-sm text-gray-500 italic">No immediate attention items based on current signals.</p>
+        ) : (
+          <div className="space-y-3">
+            {watchList.map(item => {
+              const levelLabel = item.row['Activity Level']
+                ? formatActivityLevel(item.row['Activity Level'], true)
+                : `${ACTIVITY_META.unknown.dot} ${ACTIVITY_META.unknown.label}`
+              return (
+                <div key={item.row['Issue']} className={`rounded-lg border p-3 ${item.meta.panelClass}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <a
+                        href={buildJiraUrl(item.row['Issue'])}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-semibold text-gray-800 hover:text-berkeley-blue"
+                      >
+                        {item.row['Summary']}
+                      </a>
+                      <div className="text-xs text-gray-500">{item.row['Issue']}</div>
+                      <div className="text-xs text-gray-600 mt-1">{item.reasons.join(' • ')}</div>
+                    </div>
+                    <span className={`px-2 py-1 text-xs font-medium rounded ${item.meta.badgeClass}`}>
+                      {levelLabel}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // Footer Component
 function Footer() {
   return (
@@ -2160,6 +2579,7 @@ function App() {
     if (search.includes('committees')) return 'table'
     if (search.includes('hierarchy')) return 'graph'
     if (search.includes('statistics')) return 'stats'
+    if (search.includes('trend')) return 'trend'
     return 'table'
   })
 
@@ -2169,6 +2589,7 @@ function App() {
       if (search.includes('committees')) setActiveTab('table')
       else if (search.includes('hierarchy')) setActiveTab('graph')
       else if (search.includes('statistics')) setActiveTab('stats')
+      else if (search.includes('trend')) setActiveTab('trend')
       else setActiveTab('table')
     }
     window.addEventListener('popstate', handlePopState)
@@ -2181,6 +2602,7 @@ function App() {
       case 'table': queryParam = '?committees'; break;
       case 'graph': queryParam = '?hierarchy'; break;
       case 'stats': queryParam = '?statistics'; break;
+      case 'trend': queryParam = '?trend'; break;
       default: queryParam = '?committees';
     }
 
@@ -2259,6 +2681,13 @@ function App() {
             >
               Statistics
             </TabButton>
+            <TabButton
+              active={activeTab === 'trend'}
+              onClick={() => setActiveTab('trend')}
+              icon={<TrendIcon />}
+            >
+              Trend
+            </TabButton>
           </div>
         </div>
       </div>
@@ -2305,6 +2734,11 @@ function App() {
             {activeTab === 'stats' && (
               <div className="p-6">
                 <StatisticsView data={data.filter(row => row['Status'] === 'Active')} />
+              </div>
+            )}
+            {activeTab === 'trend' && (
+              <div className="p-6">
+                <TrendView data={data.filter(row => ['Active', 'Proposing', 'Structuring and Chartering'].includes(row['Status']))} />
               </div>
             )}
           </div>
