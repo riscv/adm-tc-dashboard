@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -43,7 +43,7 @@ jobs:
           python get-rvg-issues.py --output grouped-csv --save public/rvg-grouped.csv
 
       - name: Upload CSV artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: rvg-data
           path: public/rvg-grouped.csv
@@ -54,7 +54,7 @@ jobs:
     needs: fetch-data
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download CSV artifact
         uses: actions/download-artifact@v4
