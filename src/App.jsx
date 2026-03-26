@@ -1198,7 +1198,7 @@ function GraphView({ data }) {
         )
       }, 1000)
 
-    } else {
+    } else if (viewMode === 'organogram') {
       // ── Organogram (horizontal tree layout, left → right, pill nodes) ──
       const treeData = buildTreeData(nodes, links)
       if (!treeData) return
@@ -1288,6 +1288,411 @@ function GraphView({ data }) {
         .attr('stroke-width', 1.5)
 
       attachTooltip(node)
+
+    } else if (viewMode === 'techorg') {
+      // ── Technical Organization (governance structure diagram) ──
+      const jiraBase = 'https://riscv.atlassian.net/browse/'
+      const orgBoxFill = '#f7f7f7'
+      const orgStroke = '#003262'  // Berkeley Blue
+      const orgText = '#333333'
+      const orgFontSize = '13px'
+      const orgFontFamily = 'system-ui, -apple-system, sans-serif'
+
+      // Jira key mappings for clickable boxes
+      const jiraKeys = {
+        'tsc': 'RVG-115',
+        'apps_tools_hc': 'RVG-4',
+        'priv_sw_hc': 'RVG-39',
+        'security_hc': 'RVG-68',
+        'technology_hc': 'RVG-104',
+        'soc_infra_hc': 'RVG-88',
+        'isa_infra_hc': 'RVG-32',
+        'priv_spec_ic': 'RVG-59',
+        'unpriv_spec_ic': 'RVG-122',
+        'arch_review': 'RVG-476',
+      }
+
+      // Build lookup: Jira key → leadership info from the CSV data
+      // The CSV has rows for TGs/SIGs; their "Linked Issue" fields contain parent HC/IC info.
+      // We also check the Issue field directly for committees that appear as rows themselves.
+      const orgInfo = {}
+
+      // First, index rows by their own Issue key (covers HC/IC/TG rows that exist directly)
+      data.forEach(row => {
+        const issueKey = row['Issue']
+        if (issueKey && !orgInfo[issueKey]) {
+          orgInfo[issueKey] = {
+            chair: row['Chair'] || '',
+            chairAffiliation: row['Chair Affiliation'] || '',
+            viceChair: row['Vice-Chair'] || '',
+            viceChairAffiliation: row['Vice-Chair Affiliation'] || '',
+            status: row['Status'] || '',
+            summary: row['Summary'] || '',
+          }
+        }
+      })
+
+      // Second, fill in from Linked Issue fields (parent committees may not appear as direct rows)
+      // Map linked summary patterns → Jira keys so we can associate leadership data
+      const linkedSummaryToKey = {
+        'Technical Steering Committee (TSC)': 'RVG-115',
+        'Applications & Tools (HC)': 'RVG-4',
+        'Privileged Software (HC)': 'RVG-39',
+        'Security (HC)': 'RVG-68',
+        'Technology (HC)': 'RVG-104',
+        'SOC Infrastructure (HC)': 'RVG-88',
+        'ISA Infrastructure (HC)': 'RVG-32',
+        'Privileged ISA Committee (IC)': 'RVG-59',
+        'Unprivileged ISA Committee (IC)': 'RVG-122',
+        'Architecture Review': 'RVG-476',
+      }
+      data.forEach(row => {
+        const linkedSummary = row['Linked Issue Summary']
+        if (!linkedSummary) return
+        const mappedKey = linkedSummaryToKey[linkedSummary]
+        if (mappedKey && !orgInfo[mappedKey]) {
+          orgInfo[mappedKey] = {
+            chair: row['Linked Issue Chair'] || '',
+            chairAffiliation: row['Linked Issue Chair Affiliation'] || '',
+            viceChair: row['Linked Issue Vice-Chair'] || '',
+            viceChairAffiliation: row['Linked Issue Vice-Chair Affiliation'] || '',
+            status: '',
+            summary: linkedSummary,
+          }
+        }
+      })
+
+      // Helper to get display info for a Jira key
+      const getInfo = (jiraKey) => orgInfo[jiraKey] || null
+
+      // Fit-to-screen will be applied after all elements are drawn
+
+      // Helper: draw a box (optionally clickable via jiraKey, with tooltip from data)
+      const drawBox = (x, y, w, h, label, jiraKey, opts = {}) => {
+        const clickUrl = jiraKey ? jiraBase + jiraKey : opts.url || null
+        const group = g.append('g').attr('class', clickUrl ? 'cursor-pointer' : '')
+        const info = jiraKey ? getInfo(jiraKey) : null
+
+        if (clickUrl && !jiraKey) {
+          group.on('click', () => window.open(clickUrl, '_blank'))
+          group.on('mouseover', function() {
+            d3.select(this).select('rect').attr('fill', '#FDB51533')
+          })
+          group.on('mouseout', function() {
+            d3.select(this).select('rect').attr('fill', orgBoxFill)
+          })
+        }
+        if (jiraKey) {
+          group.on('click', () => window.open(clickUrl, '_blank'))
+          group.on('mouseover', function(event) {
+            d3.select(this).select('rect').attr('fill', '#FDB51533')
+            // Show tooltip with leadership info
+            let html = `<div class="font-bold text-berkeley-blue mb-1">${label}</div>`
+            html += `<div class="text-xs text-gray-500 mb-2">${jiraKey}</div>`
+            if (info) {
+              if (info.chair) {
+                html += `<div class="text-sm"><span class="text-gray-500">Chair:</span> ${info.chair}</div>`
+                if (info.chairAffiliation) html += `<div class="text-xs text-gray-400 ml-2">${info.chairAffiliation}</div>`
+              }
+              if (info.viceChair) {
+                html += `<div class="text-sm mt-1"><span class="text-gray-500">Vice-Chair:</span> ${info.viceChair}</div>`
+                if (info.viceChairAffiliation) html += `<div class="text-xs text-gray-400 ml-2">${info.viceChairAffiliation}</div>`
+              }
+              if (!info.chair && !info.viceChair) {
+                html += `<div class="text-xs text-gray-400 italic">No leadership data available</div>`
+              }
+            }
+            tooltip.html(html)
+            tooltip.style('opacity', '1')
+            tooltip.style('left', (event.pageX + 15) + 'px')
+            tooltip.style('top', (event.pageY - 10) + 'px')
+          })
+          group.on('mousemove', function(event) {
+            tooltip.style('left', (event.pageX + 15) + 'px')
+            tooltip.style('top', (event.pageY - 10) + 'px')
+          })
+          group.on('mouseout', function() {
+            d3.select(this).select('rect').attr('fill', orgBoxFill)
+            tooltip.style('opacity', '0')
+          })
+        }
+
+        group.append('rect')
+          .attr('x', x).attr('y', y).attr('width', w).attr('height', h)
+          .attr('fill', orgBoxFill)
+          .attr('stroke', orgStroke)
+          .attr('stroke-width', 1)
+          .attr('rx', 3)
+
+        const fontSize = opts.fontSize || orgFontSize
+        const fontWeight = opts.fontWeight || '600'
+        const textY = opts.vertical ? undefined : y + h / 2
+
+        if (opts.vertical) {
+          group.append('text')
+            .attr('x', x + w / 2)
+            .attr('y', y + h / 2)
+            .attr('text-anchor', 'middle')
+            .attr('dominant-baseline', 'central')
+            .attr('font-size', fontSize)
+            .attr('font-weight', fontWeight)
+            .attr('fill', orgText)
+            .attr('font-family', orgFontFamily)
+            .attr('transform', `rotate(-90, ${x + w / 2}, ${y + h / 2})`)
+            .text(label)
+
+          // Chair/Vice-Chair horizontal text near bottom of vertical box
+          if (info && info.chair) {
+            group.append('text')
+              .attr('x', x + w / 2)
+              .attr('y', y + h - 28)
+              .attr('text-anchor', 'middle')
+              .attr('dominant-baseline', 'central')
+              .attr('font-size', '9px')
+              .attr('font-weight', '400')
+              .attr('fill', '#666')
+              .attr('font-family', orgFontFamily)
+              .text(`Chair: ${info.chair}${info.chairAffiliation ? ' (' + info.chairAffiliation + ')' : ''}`)
+          }
+          if (info && info.viceChair) {
+            group.append('text')
+              .attr('x', x + w / 2)
+              .attr('y', y + h - 14)
+              .attr('text-anchor', 'middle')
+              .attr('dominant-baseline', 'central')
+              .attr('font-size', '9px')
+              .attr('font-weight', '400')
+              .attr('fill', '#888')
+              .attr('font-family', orgFontFamily)
+              .text(`Vice-Chair: ${info.viceChair}${info.viceChairAffiliation ? ' (' + info.viceChairAffiliation + ')' : ''}`)
+          }
+        } else {
+          const hasLeadership = info && (info.chair || info.viceChair)
+          // Shift label up if we have leadership info to show
+          group.append('text')
+            .attr('x', x + w / 2)
+            .attr('y', hasLeadership ? y + h / 2 - 12 : y + h / 2)
+            .attr('text-anchor', 'middle')
+            .attr('dominant-baseline', 'central')
+            .attr('font-size', fontSize)
+            .attr('font-weight', fontWeight)
+            .attr('fill', orgText)
+            .attr('font-family', orgFontFamily)
+            .text(label)
+
+          // Show Chair and Vice-Chair below the label
+          if (info && info.chair) {
+            group.append('text')
+              .attr('x', x + w / 2)
+              .attr('y', y + h / 2 + 2)
+              .attr('text-anchor', 'middle')
+              .attr('dominant-baseline', 'central')
+              .attr('font-size', '10px')
+              .attr('font-weight', '400')
+              .attr('fill', '#666')
+              .attr('font-family', orgFontFamily)
+              .text(`Chair: ${info.chair}${info.chairAffiliation ? ' (' + info.chairAffiliation + ')' : ''}`)
+          }
+          if (info && info.viceChair) {
+            group.append('text')
+              .attr('x', x + w / 2)
+              .attr('y', y + h / 2 + 14)
+              .attr('text-anchor', 'middle')
+              .attr('dominant-baseline', 'central')
+              .attr('font-size', '10px')
+              .attr('font-weight', '400')
+              .attr('fill', '#888')
+              .attr('font-family', orgFontFamily)
+              .text(`Vice-Chair: ${info.viceChair}${info.viceChairAffiliation ? ' (' + info.viceChairAffiliation + ')' : ''}`)
+          }
+        }
+
+        return group
+      }
+
+      // Layout constants — nested container approach
+      const pad = 15           // padding inside each container
+      const hcBoxH = 52       // HC box height (fits Chair + Vice-Chair)
+      const hcGap = 6
+      const staffW = 120
+
+      // Pre-calculate inner content height
+      const hcCount = 6
+      const contentH = hcCount * (hcBoxH + hcGap) - hcGap  // HC stack height
+
+      // TSC inner area
+      const tscInnerH = contentH + 90  // room for Arch Profiles row + HC/IC area
+      const tscPad = pad
+
+      // Nesting dimensions (outside-in)
+      const bodX = 40
+      const bodY = 55
+      const bodW = 1100
+      const bodH = tscInnerH + 2 * pad + 30 + 2 * tscPad  // TSC height + BoD label + padding
+
+      // Title (centered with BoD)
+      g.append('text')
+        .attr('x', bodX + bodW / 2)
+        .attr('y', 30)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', '22px')
+        .attr('font-weight', '700')
+        .attr('fill', orgText)
+        .attr('font-family', orgFontFamily)
+        .text('Technical Organization')
+
+      const tscX = bodX + pad
+      const tscY = bodY + 30  // below BoD label
+      const tscW = bodW - 2 * pad
+      const tscH = bodH - 30 - pad
+
+      // ── Draw nested containers (back to front) ──
+
+      // RISC-V Staff (inside BoD, right side, crossing TSC)
+      const staffX = bodX + bodW - pad - staffW - 10  // inset so TSC border is visible
+      const staffY = bodY + 8  // above TSC, inside BoD
+      const staffH = bodH - 16  // extends past TSC bottom into BoD padding
+
+      // BoD container (outermost, clickable)
+      const bodGroup = g.append('g').attr('class', 'cursor-pointer')
+      bodGroup.on('click', () => window.open('https://riscv.org/about/board/', '_blank'))
+      bodGroup.on('mouseover', function() { d3.select(this).select('rect').attr('fill', '#FDB51533') })
+      bodGroup.on('mouseout', function() { d3.select(this).select('rect').attr('fill', 'none') })
+      bodGroup.append('rect')
+        .attr('x', bodX).attr('y', bodY).attr('width', bodW).attr('height', bodH)
+        .attr('fill', 'none')
+        .attr('stroke', orgStroke)
+        .attr('stroke-width', 1.5)
+        .attr('rx', 4)
+      bodGroup.append('text')
+        .attr('x', bodX + bodW / 2).attr('y', bodY + 16)
+        .attr('text-anchor', 'middle')
+        .attr('dominant-baseline', 'central')
+        .attr('font-size', '14px')
+        .attr('font-weight', '700')
+        .attr('fill', orgText)
+        .attr('font-family', orgFontFamily)
+        .text('Board of Directors (BoD)')
+
+      // TSC container (nested inside BoD)
+      const tscGroup = g.append('g').attr('class', 'cursor-pointer')
+      tscGroup.on('click', () => window.open('https://riscv.org/about/technical-steering-committee/', '_blank'))
+      tscGroup.on('mouseover', function() { d3.select(this).select('rect').attr('fill', '#FDB51522') })
+      tscGroup.on('mouseout', function() { d3.select(this).select('rect').attr('fill', '#fafafa') })
+      tscGroup.append('rect')
+        .attr('x', tscX).attr('y', tscY).attr('width', tscW).attr('height', tscH)
+        .attr('fill', '#fafafa')
+        .attr('stroke', orgStroke)
+        .attr('stroke-width', 1.5)
+        .attr('rx', 4)
+
+      // TSC label + leadership
+      const tscInfo = getInfo(jiraKeys.tsc)
+      const tscLabelGroup = tscGroup.append('g')
+      tscLabelGroup.append('text')
+        .attr('x', tscX + tscW / 2).attr('y', tscY + 14)
+        .attr('text-anchor', 'middle')
+        .attr('dominant-baseline', 'central')
+        .attr('font-size', '14px')
+        .attr('font-weight', '700')
+        .attr('fill', orgText)
+        .attr('font-family', orgFontFamily)
+        .text('Technical Steering Committee (TSC)')
+      if (tscInfo && tscInfo.chair) {
+        tscLabelGroup.append('text')
+          .attr('x', tscX + tscW / 2).attr('y', tscY + 34)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', '10px')
+          .attr('fill', '#666')
+          .attr('font-family', orgFontFamily)
+          .text(`Chair: ${tscInfo.chair}${tscInfo.chairAffiliation ? ' (' + tscInfo.chairAffiliation + ')' : ''}${tscInfo.viceChair ? '  |  Vice-Chair: ' + tscInfo.viceChair + (tscInfo.viceChairAffiliation ? ' (' + tscInfo.viceChairAffiliation + ')' : '') : ''}`)
+      }
+
+      // RISC-V Staff (inside BoD, right side, drawn on top of TSC so it crosses it)
+      drawBox(staffX, staffY, staffW, staffH, 'RISC-V Staff', null, { vertical: true, url: 'https://riscv.org/about/staff/' })
+
+      // ── Content inside TSC ──
+      const innerY = tscY + 42
+
+      // Architecture Profiles & SW Platforms
+      const subBoxW = 200
+      drawBox(tscX + tscW / 2 - subBoxW - 20, innerY, subBoxW, 32, 'Architecture Profiles', null, { fontSize: '11px' })
+      drawBox(tscX + tscW / 2 + 20, innerY, subBoxW, 32, 'SW Platforms', null, { fontSize: '11px' })
+
+      // HC/IC area starts below
+      const hcAreaY = innerY + 48
+
+      // Horizontal label (rotated)
+      const hcStackX = tscX + 50
+      const hcBoxW = 460
+      g.append('text')
+        .attr('x', tscX + 18)
+        .attr('y', hcAreaY + contentH / 2)
+        .attr('text-anchor', 'middle')
+        .attr('dominant-baseline', 'central')
+        .attr('font-size', '13px')
+        .attr('font-weight', '700')
+        .attr('fill', orgText)
+        .attr('font-family', orgFontFamily)
+        .attr('transform', `rotate(-90, ${tscX + 18}, ${hcAreaY + contentH / 2})`)
+        .text('Horizontal Committees')
+
+      // HC stack (6 boxes)
+      const hcItems = [
+        { label: 'Applications & Tools HC', key: jiraKeys.apps_tools_hc },
+        { label: 'Privileged Software HC', key: jiraKeys.priv_sw_hc },
+        { label: 'Security HC', key: jiraKeys.security_hc },
+        { label: 'Technology HC', key: jiraKeys.technology_hc },
+        { label: 'SOC Infrastructure HC', key: jiraKeys.soc_infra_hc },
+        { label: 'ISA Infrastructure HC', key: jiraKeys.isa_infra_hc },
+      ]
+      hcItems.forEach((item, i) => {
+        drawBox(hcStackX, hcAreaY + i * (hcBoxH + hcGap), hcBoxW, hcBoxH, item.label, item.key)
+      })
+
+      // IC columns (inside TSC, right side)
+      const icX = hcStackX + hcBoxW + 20
+      const icW = 190
+      const icGap = 16
+      const uicX = icX + icW + icGap
+      const icH = contentH
+
+      drawBox(icX, hcAreaY, icW, icH, 'Privileged Spec IC', jiraKeys.priv_spec_ic, { vertical: true })
+      drawBox(uicX, hcAreaY, icW, icH, 'Unprivileged Spec IC', jiraKeys.unpriv_spec_ic, { vertical: true })
+
+      // Architecture Review (inside IC area, drawn on top)
+      const arW = uicX + icW - icX - 16
+      const arY = hcAreaY + 35
+      drawBox(icX + 8, arY, arW, 38, 'Architecture Review', jiraKeys.arch_review, { fontSize: '11px' })
+
+      // Connector bars (dashed lines from HC boxes toward Staff column)
+      const connectorG = g.append('g')
+      hcItems.forEach((_, i) => {
+        const barY = hcAreaY + i * (hcBoxH + hcGap) + hcBoxH / 2
+        connectorG.append('line')
+          .attr('x1', hcStackX + hcBoxW)
+          .attr('y1', barY)
+          .attr('x2', staffX)
+          .attr('y2', barY)
+          .attr('stroke', '#ccc')
+          .attr('stroke-width', 1)
+          .attr('stroke-dasharray', '4,3')
+      })
+
+      // Fit diagram to container based on actual rendered bounding box
+      const bbox = g.node().getBBox()
+      const padFit = 20
+      const fitScale = Math.min(
+        (width - padFit * 2) / bbox.width,
+        (height - padFit * 2) / bbox.height
+      )
+      const fitX = (width - bbox.width * fitScale) / 2 - bbox.x * fitScale
+      const fitY = (height - bbox.height * fitScale) / 2 - bbox.y * fitScale
+      const fitTransform = d3.zoomIdentity.translate(fitX, fitY).scale(fitScale)
+      svg.call(zoom.transform, fitTransform)
+
+      // Store fit transform so Reset View can restore it
+      zoomRef.current._fitTransform = fitTransform
     }
 
     // Cleanup: stop simulation and clear pending timers when deps change
@@ -1324,6 +1729,16 @@ function GraphView({ data }) {
           >
             Organogram
           </button>
+          <button
+            onClick={() => setViewMode('techorg')}
+            className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+              viewMode === 'techorg'
+                ? 'bg-berkeley-blue text-white'
+                : 'bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            Tech Org
+          </button>
         </div>
 
         <div className="w-px h-6 bg-gray-200" />
@@ -1351,7 +1766,8 @@ function GraphView({ data }) {
         <button
           onClick={() => {
             if (svgRef.current && zoomRef.current) {
-              svgRef.current.transition().call(zoomRef.current.transform, d3.zoomIdentity)
+              const resetTransform = zoomRef.current._fitTransform || d3.zoomIdentity
+              svgRef.current.transition().call(zoomRef.current.transform, resetTransform)
             }
           }}
           className="btn-secondary text-sm"
