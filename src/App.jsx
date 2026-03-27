@@ -889,11 +889,15 @@ function GroupedRows({ group, rows, showEmails }) {
 }
 
 // Hierarchy Explorer Component
-function GraphView({ data }) {
+function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
   const containerRef = useRef(null)
   const svgRef = useRef(null)
   const tooltipRef = useRef(null)
-  const [viewMode, setViewMode] = useState('graph')
+  const [viewMode, setViewModeState] = useState(initialViewMode)
+  const setViewMode = (mode) => {
+    setViewModeState(mode)
+    if (onViewModeChange) onViewModeChange(mode)
+  }
   const zoomRef = useRef(null)
 
   const colorScale = {
@@ -2993,17 +2997,25 @@ function App() {
   const [activeTab, setActiveTab] = useState(() => {
     const search = window.location.search
     if (search.includes('committees')) return 'table'
-    if (search.includes('hierarchy')) return 'graph'
+    if (search.includes('hierarchy') || search.includes('organogram') || search.includes('techorg')) return 'graph'
     if (search.includes('statistics')) return 'stats'
     if (search.includes('trend')) return 'trend'
     return 'table'
+  })
+  const [graphViewMode, setGraphViewMode] = useState(() => {
+    const search = window.location.search
+    if (search.includes('organogram')) return 'organogram'
+    if (search.includes('techorg')) return 'techorg'
+    return 'graph'
   })
 
   useEffect(() => {
     const handlePopState = () => {
       const search = window.location.search
       if (search.includes('committees')) setActiveTab('table')
-      else if (search.includes('hierarchy')) setActiveTab('graph')
+      else if (search.includes('organogram')) { setActiveTab('graph'); setGraphViewMode('organogram') }
+      else if (search.includes('techorg')) { setActiveTab('graph'); setGraphViewMode('techorg') }
+      else if (search.includes('hierarchy')) { setActiveTab('graph'); setGraphViewMode('graph') }
       else if (search.includes('statistics')) setActiveTab('stats')
       else if (search.includes('trend')) setActiveTab('trend')
       else setActiveTab('table')
@@ -3016,7 +3028,11 @@ function App() {
     let queryParam = ''
     switch (activeTab) {
       case 'table': queryParam = '?committees'; break;
-      case 'graph': queryParam = '?hierarchy'; break;
+      case 'graph':
+        if (graphViewMode === 'organogram') queryParam = '?organogram'
+        else if (graphViewMode === 'techorg') queryParam = '?techorg'
+        else queryParam = '?hierarchy'
+        break;
       case 'stats': queryParam = '?statistics'; break;
       case 'trend': queryParam = '?trend'; break;
       default: queryParam = '?committees';
@@ -3026,7 +3042,7 @@ function App() {
       const newUrl = window.location.pathname + queryParam
       window.history.pushState(null, '', newUrl)
     }
-  }, [activeTab])
+  }, [activeTab, graphViewMode])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -3144,7 +3160,7 @@ function App() {
             )}
             {activeTab === 'graph' && (
               <div className="p-6">
-                <GraphView data={data.filter(row => row['Status'] === 'Active')} />
+                <GraphView data={data.filter(row => row['Status'] === 'Active')} initialViewMode={graphViewMode} onViewModeChange={setGraphViewMode} />
               </div>
             )}
             {activeTab === 'stats' && (
