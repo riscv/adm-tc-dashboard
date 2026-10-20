@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import * as d3 from 'd3'
+import { StatisticsView, HistoryView } from './StatsView'
+import { groupType } from './stats'
 
 // Environment flag to show/hide emails (set VITE_SHOW_EMAILS=true to enable)
 const SHOW_EMAILS = import.meta.env.VITE_SHOW_EMAILS === 'true'
@@ -155,7 +157,7 @@ const ACTIVITY_META = {
   },
   inactive: {
     key: 'inactive',
-    label: 'Inactive',
+    label: 'Stalled',
     dot: '🔴',
     score: 0,
     badgeClass: 'bg-red-100 text-red-700',
@@ -175,21 +177,6 @@ const ACTIVITY_META = {
   },
 }
 
-const MONTH_TO_NUMBER = {
-  'January': 1,
-  'February': 2,
-  'March': 3,
-  'April': 4,
-  'May': 5,
-  'June': 6,
-  'July': 7,
-  'August': 8,
-  'September': 9,
-  'October': 10,
-  'November': 11,
-  'December': 12,
-}
-
 function normalizeActivityLevel(level) {
   if (!level) return 'unknown'
   const raw = String(level).trim()
@@ -207,7 +194,7 @@ function normalizeActivityLevel(level) {
   if (raw.includes('🟡') || normalized === 'low' || normalized.includes('low activity')) {
     return 'low'
   }
-  if (raw.includes('🔴') || normalized === 'inactive') {
+  if (raw.includes('🔴') || normalized === 'inactive' || normalized === 'stalled') {
     return 'inactive'
   }
   return 'unknown'
@@ -417,41 +404,38 @@ function CopyButton({ row, showEmails }) {
   )
 }
 
-// Parse CSV
+// Parse CSV (RFC 4180: quoted fields may contain commas, doubled quotes and newlines)
 function parseCSV(text) {
-  const lines = text.trim().split('\n')
-  const headers = parseCSVLine(lines[0])
-  const data = []
-
-  for (let i = 1; i < lines.length; i++) {
-    const values = parseCSVLine(lines[i])
-    const row = {}
-    headers.forEach((header, index) => {
-      row[header] = values[index] || ''
-    })
-    data.push(row)
+  const records = []
+  let row = []
+  let field = ''
+  let inQuotes = false
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++ } else inQuotes = false
+      } else field += c
+    } else if (c === '"') inQuotes = true
+    else if (c === ',') { row.push(field); field = '' }
+    else if (c === '\n') { row.push(field); records.push(row); row = []; field = '' }
+    else if (c !== '\r') field += c
   }
-  return data
+  if (field || row.length) { row.push(field); records.push(row) }
+  const nonEmpty = records.filter(r => r.length > 1 || r[0] !== '')
+  if (!nonEmpty.length) return []
+  const headers = nonEmpty[0].map(h => h.trim())
+  return nonEmpty.slice(1).map(values => {
+    const obj = {}
+    headers.forEach((h, idx) => { obj[h] = (values[idx] || '').trim() })
+    return obj
+  })
 }
 
-function parseCSVLine(line) {
-  const result = []
-  let current = ''
-  let inQuotes = false
-
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i]
-    if (char === '"') {
-      inQuotes = !inQuotes
-    } else if (char === ',' && !inQuotes) {
-      result.push(current.trim())
-      current = ''
-    } else {
-      current += char
-    }
-  }
-  result.push(current.trim())
-  return result
+// Number of distinct groups in a list of CSV rows (a group with two
+// governing committees has two rows).
+function countDistinct(rows) {
+  return new Set(rows.map(r => r['Issue'])).size
 }
 
 // Build mailto link
@@ -781,12 +765,9 @@ function TableView({ data, showEmails }) {
   const filteredByType = useMemo(() => {
     if (!typeFilter) return data
     return data.filter(row => {
-      const summary = (row['Summary'] || '').trim()
       const status = row['Status']
-      if (typeFilter === 'TG') return summary.endsWith('TG')
-      if (typeFilter === 'SIG') return summary.endsWith('SIG')
-      if (typeFilter === 'HC') return summary.includes('(HC)')
-      if (typeFilter === 'IC') return summary.includes('(IC)')
+      const type = groupType(row)
+      if (['TG', 'SIG', 'HC', 'IC'].includes(typeFilter)) return type === typeFilter
       if (typeFilter === 'Proposing') return status === 'Proposing'
       if (typeFilter === 'Structuring') return status === 'Structuring and Chartering'
       return true
@@ -847,7 +828,7 @@ function TableView({ data, showEmails }) {
         ))}
         {typeFilter && (
           <span className="ml-2 text-xs text-gray-500">
-            {filteredByType.length} of {data.length} committees
+            {countDistinct(filteredByType)} of {countDistinct(data)} groups
           </span>
         )}
       </div>
@@ -989,14 +970,13 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
       const nodeId = `${issue}: ${summary}`
 
       if (!nodes.has(nodeId)) {
-        const isTG = summary.includes(' TG') || summary.toLowerCase().includes('task group')
-        const isSIG = summary.includes(' SIG') || summary.toLowerCase().includes('sig')
+        const t = groupType(row)
 
         const node = {
           id: nodeId,
           issueKey: issue,
           name: summary,
-          type: isTG ? 'TG' : (isSIG ? 'SIG' : 'TG'),
+          type: t === 'SIG' ? 'SIG' : 'TG',
           chair: row['Chair'] || '',
           chairEmail: row['Chair Email'] || '',
           viceChair: row['Vice-Chair'] || '',
@@ -1819,1163 +1799,6 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
   )
 }
 
-// Statistics View Component
-function StatisticsView({ data }) {
-  const [selectedCompany, setSelectedCompany] = useState(null)
-  const [companySearch, setCompanySearch] = useState('')
-
-  // Calculate positions per company with detailed member info
-  const companyPositions = useMemo(() => {
-    const companies = {}
-    data.forEach(row => {
-      // Chair affiliations
-      if (row['Chair Affiliation']) {
-        const company = row['Chair Affiliation']
-        if (!companies[company]) companies[company] = { chairs: [], viceChairs: [] }
-        companies[company].chairs.push({
-          name: row['Chair'] || 'Unknown',
-          email: row['Chair Email'] || '',
-          group: row['Summary'],
-          groupKey: row['Issue'],
-          governingCommittee: row['Linked Issue Summary'] || ''
-        })
-      }
-      // Vice-Chair affiliations
-      if (row['Vice-Chair Affiliation']) {
-        const company = row['Vice-Chair Affiliation']
-        if (!companies[company]) companies[company] = { chairs: [], viceChairs: [] }
-        companies[company].viceChairs.push({
-          name: row['Vice-Chair'] || 'Unknown',
-          email: row['Vice-Chair Email'] || '',
-          group: row['Summary'],
-          groupKey: row['Issue'],
-          governingCommittee: row['Linked Issue Summary'] || ''
-        })
-      }
-    })
-    return Object.entries(companies)
-      .map(([company, positions]) => ({
-        company,
-        chairs: positions.chairs,
-        viceChairs: positions.viceChairs,
-        chairCount: positions.chairs.length,
-        viceChairCount: positions.viceChairs.length,
-        total: positions.chairs.length + positions.viceChairs.length
-      }))
-      .sort((a, b) => b.total - a.total)
-  }, [data])
-
-  // Filter company positions based on search
-  const filteredCompanyPositions = useMemo(() => {
-    if (!companySearch.trim()) return companyPositions
-    const term = companySearch.toLowerCase()
-    return companyPositions.filter(item =>
-      item.company.toLowerCase().includes(term) ||
-      item.chairs.some(c => c.name.toLowerCase().includes(term) || c.group.toLowerCase().includes(term)) ||
-      item.viceChairs.some(c => c.name.toLowerCase().includes(term) || c.group.toLowerCase().includes(term))
-    )
-  }, [companyPositions, companySearch])
-
-  // Calculate TGs approaching 2 years
-  // Uses the most recent date between Recharter Approval Date and Group Creation Date.
-  // If Recharter Approval Date is empty, falls back to Group Creation Date.
-  // If both are empty, the item is excluded.
-  const tgsApproaching2Years = useMemo(() => {
-    const now = new Date()
-    const results = { oneMonth: [], twoMonths: [], threeMonths: [], sixMonths: [] }
-
-    data.forEach(row => {
-      const creationDateStr = row['Creation Date']
-      const recharterDateStr = row['Recharter Approval Date']
-
-      // Skip if both dates are empty
-      if (!creationDateStr && !recharterDateStr) return
-
-      // Parse both dates
-      const creationDate = creationDateStr ? new Date(creationDateStr) : null
-      const recharterDate = recharterDateStr ? new Date(recharterDateStr) : null
-
-      // Validate parsed dates
-      const validCreation = creationDate && !isNaN(creationDate.getTime()) ? creationDate : null
-      const validRecharter = recharterDate && !isNaN(recharterDate.getTime()) ? recharterDate : null
-
-      // Skip if no valid dates
-      if (!validCreation && !validRecharter) return
-
-      // Pick the most recent date between the two
-      let referenceDate
-      if (validRecharter && validCreation) {
-        referenceDate = validRecharter > validCreation ? validRecharter : validCreation
-      } else {
-        referenceDate = validCreation || validRecharter
-      }
-
-      // Calculate when they hit 2 years from the reference date
-      const twoYearDate = new Date(referenceDate)
-      twoYearDate.setFullYear(twoYearDate.getFullYear() + 2)
-
-      const diffMs = twoYearDate - now
-      const diffDays = diffMs / (1000 * 60 * 60 * 24)
-
-      if (diffDays > 0 && diffDays <= 30) {
-        results.oneMonth.push({ ...row, daysUntil: Math.ceil(diffDays), twoYearDate, referenceDate })
-      } else if (diffDays > 30 && diffDays <= 60) {
-        results.twoMonths.push({ ...row, daysUntil: Math.ceil(diffDays), twoYearDate, referenceDate })
-      } else if (diffDays > 60 && diffDays <= 90) {
-        results.threeMonths.push({ ...row, daysUntil: Math.ceil(diffDays), twoYearDate, referenceDate })
-      } else if (diffDays > 90 && diffDays <= 180) {
-        results.sixMonths.push({ ...row, daysUntil: Math.ceil(diffDays), twoYearDate, referenceDate })
-      }
-    })
-
-    return results
-  }, [data])
-
-  // Calculate upcoming elections
-  const upcomingElections = useMemo(() => {
-    const now = new Date()
-    const currentMonth = now.getMonth() + 1 // 1-12
-    const currentYear = now.getFullYear()
-    const results = { now: [], oneMonth: [], twoMonths: [], threeMonths: [] }
-
-    const monthNames = {
-      'January': 1, 'February': 2, 'March': 3, 'April': 4,
-      'May': 5, 'June': 6, 'July': 7, 'August': 8,
-      'September': 9, 'October': 10, 'November': 11, 'December': 12
-    }
-
-    const monthNamesReverse = Object.fromEntries(
-      Object.entries(monthNames).map(([k, v]) => [v, k])
-    )
-
-    data.forEach(row => {
-      const nextElectionMonth = row['Next Election Month']
-      const nextElectionYear = row['Next Election Year']
-      const lastElectionMonth = row['Last Election Month']
-      const lastElectionYear = row['Last Election Year']
-
-      // Check if election should be happening NOW
-      // Condition 1: Next election is current month or has passed
-      // Condition 2: Last election was more than 12 months ago
-      let shouldBeNow = false
-      let reason = ''
-
-      if (nextElectionMonth && nextElectionYear) {
-        const nextMonthNum = monthNames[nextElectionMonth] || parseInt(nextElectionMonth)
-        const nextYearNum = parseInt(nextElectionYear)
-
-        if (nextMonthNum && nextYearNum) {
-          const monthsUntilNext = (nextYearNum - currentYear) * 12 + (nextMonthNum - currentMonth)
-
-          // Election is this month or overdue
-          if (monthsUntilNext <= 0) {
-            shouldBeNow = true
-            reason = monthsUntilNext === 0 ? 'Election this month' : 'Election overdue'
-          } else if (monthsUntilNext === 1) {
-            results.oneMonth.push({ ...row, monthsUntil: monthsUntilNext, electionMonth: nextElectionMonth, electionYear: nextYearNum })
-          } else if (monthsUntilNext === 2) {
-            results.twoMonths.push({ ...row, monthsUntil: monthsUntilNext, electionMonth: nextElectionMonth, electionYear: nextYearNum })
-          } else if (monthsUntilNext === 3) {
-            results.threeMonths.push({ ...row, monthsUntil: monthsUntilNext, electionMonth: nextElectionMonth, electionYear: nextYearNum })
-          }
-        }
-      }
-
-      // Check if last election was more than 12 months ago
-      if (!shouldBeNow && lastElectionMonth && lastElectionYear) {
-        const lastMonthNum = monthNames[lastElectionMonth] || parseInt(lastElectionMonth)
-        const lastYearNum = parseInt(lastElectionYear)
-
-        if (lastMonthNum && lastYearNum) {
-          const monthsSinceLast = (currentYear - lastYearNum) * 12 + (currentMonth - lastMonthNum)
-
-          if (monthsSinceLast >= 12) {
-            shouldBeNow = true
-            reason = `Last election ${monthsSinceLast} months ago`
-          }
-        }
-      }
-
-      if (shouldBeNow) {
-        results.now.push({
-          ...row,
-          reason,
-          lastElectionMonth,
-          lastElectionYear,
-          nextElectionMonth,
-          nextElectionYear
-        })
-      }
-    })
-
-    return results
-  }, [data])
-
-  // Calculate longest running groups
-  const longestRunning = useMemo(() => {
-    const now = new Date()
-    const groupsWithAge = data
-      .filter(row => row['Creation Date'])
-      .map(row => {
-        const created = new Date(row['Creation Date'])
-        if (isNaN(created.getTime())) return null
-        const diffMs = now - created
-        const years = diffMs / (1000 * 60 * 60 * 24 * 365.25)
-        const summary = row['Summary'] || ''
-
-        // Determine type
-        let type = 'TG'
-        if (summary.includes(' SIG') || summary.toLowerCase().includes('special interest')) {
-          type = 'SIG'
-        } else if (summary.includes('(HC)') || summary.includes('(IC)') || summary.includes('Committee')) {
-          type = 'Committee'
-        }
-
-        return {
-          ...row,
-          years: Math.round(years * 10) / 10,
-          createdDate: created,
-          type
-        }
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.years - a.years)
-
-    return {
-      tgs: groupsWithAge.filter(g => g.type === 'TG').slice(0, 5),
-      sigs: groupsWithAge.filter(g => g.type === 'SIG').slice(0, 5),
-      committees: groupsWithAge.filter(g => g.type === 'Committee').slice(0, 5)
-    }
-  }, [data])
-
-  const maxPositions = Math.max(...filteredCompanyPositions.map(c => c.total), 1)
-
-  return (
-    <div className="space-y-8">
-      {/* Company Details Modal */}
-      {selectedCompany && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSelectedCompany(null)}>
-          <div
-            className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="bg-berkeley-blue text-white px-6 py-4 flex items-center justify-between">
-              <div>
-                <h3 className="text-xl font-bold">{selectedCompany.company}</h3>
-                <p className="text-berkeley-blue-light text-sm">
-                  {selectedCompany.chairCount} Chair · {selectedCompany.viceChairCount} Vice-Chair positions
-                </p>
-              </div>
-              <button
-                onClick={() => setSelectedCompany(null)}
-                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-              >
-                <CloseIcon />
-              </button>
-            </div>
-            <div className="p-6 overflow-auto max-h-[calc(80vh-80px)]">
-              {/* Chairs */}
-              {selectedCompany.chairs.length > 0 && (
-                <div className="mb-6">
-                  <h4 className="font-semibold text-berkeley-blue mb-3 flex items-center gap-2">
-                    <span className="w-3 h-3 bg-berkeley-blue rounded" />
-                    Chair Positions ({selectedCompany.chairs.length})
-                  </h4>
-                  <div className="space-y-2">
-                    {selectedCompany.chairs.map((pos, idx) => (
-                      <div key={`chair-${idx}`} className="bg-gray-50 rounded-lg p-3">
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <div className="font-medium text-gray-800">{pos.name}</div>
-                            <a
-                              href={`https://riscv.atlassian.net/browse/${pos.groupKey}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm text-berkeley-blue-light hover:text-california-gold"
-                            >
-                              {pos.group}
-                            </a>
-                            {pos.governingCommittee && (
-                              <div className="text-xs text-gray-500 mt-1">{pos.governingCommittee}</div>
-                            )}
-                          </div>
-                          <span className="text-xs bg-berkeley-blue text-white px-2 py-1 rounded">Chair</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Vice-Chairs */}
-              {selectedCompany.viceChairs.length > 0 && (
-                <div>
-                  <h4 className="font-semibold text-berkeley-blue mb-3 flex items-center gap-2">
-                    <span className="w-3 h-3 bg-california-gold rounded" />
-                    Vice-Chair Positions ({selectedCompany.viceChairs.length})
-                  </h4>
-                  <div className="space-y-2">
-                    {selectedCompany.viceChairs.map((pos, idx) => (
-                      <div key={`vc-${idx}`} className="bg-gray-50 rounded-lg p-3">
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <div className="font-medium text-gray-800">{pos.name}</div>
-                            <a
-                              href={`https://riscv.atlassian.net/browse/${pos.groupKey}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm text-berkeley-blue-light hover:text-california-gold"
-                            >
-                              {pos.group}
-                            </a>
-                            {pos.governingCommittee && (
-                              <div className="text-xs text-gray-500 mt-1">{pos.governingCommittee}</div>
-                            )}
-                          </div>
-                          <span className="text-xs bg-california-gold text-berkeley-blue px-2 py-1 rounded">Vice-Chair</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Company Positions */}
-      {import.meta.env.VITE_ENABLE_POSITIONS_BY_COMPANY === 'true' && (
-      <div>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
-          <div>
-            <h2 className="text-xl font-bold text-berkeley-blue">Positions by Company</h2>
-            <p className="text-gray-600 text-sm">Number of Chair and Vice-Chair positions held by each company. Click a bar or row to see details.</p>
-          </div>
-          <div className="relative w-full sm:w-64">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-              <SearchIcon />
-            </div>
-            <input
-              type="text"
-              value={companySearch}
-              onChange={(e) => setCompanySearch(e.target.value)}
-              placeholder="Search company, name, group..."
-              className="w-full pl-10 pr-8 py-2 bg-white border border-gray-300 rounded-lg
-                         focus:border-california-gold focus:ring-2 focus:ring-california-gold/20
-                         outline-none transition-all text-sm"
-            />
-            {companySearch && (
-              <button
-                onClick={() => setCompanySearch('')}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-              >
-                <CloseIcon />
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Chart */}
-          <div className="bg-gray-50 rounded-xl p-6 flex flex-col h-[500px]">
-            <div className="space-y-3 flex-1 overflow-y-auto overflow-x-hidden">
-              {filteredCompanyPositions.map((item, idx) => (
-                <div
-                  key={item.company}
-                  className="flex items-center gap-3 cursor-pointer hover:bg-gray-100 rounded-lg p-1 -m-1 transition-colors"
-                  onClick={() => setSelectedCompany(item)}
-                >
-                  <div className="w-32 text-sm text-gray-700 truncate" title={item.company}>
-                    {item.company}
-                  </div>
-                  <div className="flex-1 flex items-center gap-1">
-                    <div
-                      className="h-6 bg-berkeley-blue rounded-l hover:bg-berkeley-blue-light transition-colors"
-                      style={{ width: `${(item.chairCount / maxPositions) * 100}%`, minWidth: item.chairCount > 0 ? '4px' : '0' }}
-                      title={`Chair: ${item.chairCount}`}
-                    />
-                    <div
-                      className="h-6 bg-california-gold rounded-r hover:opacity-80 transition-opacity"
-                      style={{ width: `${(item.viceChairCount / maxPositions) * 100}%`, minWidth: item.viceChairCount > 0 ? '4px' : '0' }}
-                      title={`Vice-Chair: ${item.viceChairCount}`}
-                    />
-                  </div>
-                  <div className="w-12 text-right text-sm font-semibold text-gray-700">
-                    {item.total}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="flex items-center gap-6 mt-6 pt-4 border-t border-gray-200">
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-berkeley-blue rounded" />
-                <span className="text-sm text-gray-600">Chair</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-california-gold rounded" />
-                <span className="text-sm text-gray-600">Vice-Chair</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Table */}
-          <div className="bg-white rounded-xl border border-gray-200 flex flex-col h-[500px] overflow-hidden">
-            <div className="overflow-auto flex-1">
-            <table className="w-full text-sm">
-              <thead className="bg-berkeley-blue text-white sticky top-0">
-                <tr>
-                  <th className="px-3 py-2 text-left">Company</th>
-                  <th className="px-3 py-2 text-center">Chair</th>
-                  <th className="px-3 py-2 text-center">Vice-Chair</th>
-                  <th className="px-3 py-2 text-center">Total</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {filteredCompanyPositions.map((item, idx) => (
-                  <tr
-                    key={item.company}
-                    className={`cursor-pointer hover:bg-california-gold/20 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
-                    onClick={() => setSelectedCompany(item)}
-                  >
-                    <td className="px-3 py-2">{item.company}</td>
-                    <td className="px-3 py-2 text-center">{item.chairCount}</td>
-                    <td className="px-3 py-2 text-center">{item.viceChairCount}</td>
-                    <td className="px-3 py-2 text-center font-semibold">{item.total}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </div>
-          </div>
-        </div>
-      </div>
-      )}
-
-      {/* TGs Approaching 2 Years */}
-      <div>
-        <h2 className="text-xl font-bold text-berkeley-blue mb-4">Groups Approaching 2 Years</h2>
-        <p className="text-gray-600 text-sm mb-6">Technical Groups that will reach their 2-year milestone soon (based on most recent of Recharter Approval Date or Group Creation Date)</p>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* 1 Month */}
-          <div className="bg-red-50 rounded-xl p-4 border border-red-100">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center font-bold">
-                {tgsApproaching2Years.oneMonth.length}
-              </span>
-              <span className="font-semibold text-red-700">Within 1 Month</span>
-            </div>
-            <div className="space-y-2">
-              {tgsApproaching2Years.oneMonth.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No groups</p>
-              ) : (
-                tgsApproaching2Years.oneMonth.map(row => (
-                  <div key={row['Issue']} className="text-sm bg-white rounded p-2">
-                    <a
-                      href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-gray-800 hover:text-red-600"
-                    >
-                      {row['Summary']}
-                    </a>
-                    <div className="text-xs text-gray-500">{row.daysUntil} days</div>
-                    <div className="text-xs text-gray-400">
-                      {row['Recharter Approval Date'] && new Date(row['Recharter Approval Date']).getTime() === row.referenceDate.getTime()
-                        ? `Rechartered: ${row['Recharter Approval Date']}`
-                        : `Created: ${row['Creation Date']}`}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* 2 Months */}
-          <div className="bg-yellow-50 rounded-xl p-4 border border-yellow-100">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-8 h-8 bg-yellow-500 text-white rounded-full flex items-center justify-center font-bold">
-                {tgsApproaching2Years.twoMonths.length}
-              </span>
-              <span className="font-semibold text-yellow-700">Within 2 Months</span>
-            </div>
-            <div className="space-y-2">
-              {tgsApproaching2Years.twoMonths.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No groups</p>
-              ) : (
-                tgsApproaching2Years.twoMonths.map(row => (
-                  <div key={row['Issue']} className="text-sm bg-white rounded p-2">
-                    <a
-                      href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-gray-800 hover:text-yellow-600"
-                    >
-                      {row['Summary']}
-                    </a>
-                    <div className="text-xs text-gray-500">{row.daysUntil} days</div>
-                    <div className="text-xs text-gray-400">
-                      {row['Recharter Approval Date'] && new Date(row['Recharter Approval Date']).getTime() === row.referenceDate.getTime()
-                        ? `Rechartered: ${row['Recharter Approval Date']}`
-                        : `Created: ${row['Creation Date']}`}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* 3 Months */}
-          <div className="bg-green-50 rounded-xl p-4 border border-green-100">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-8 h-8 bg-green-500 text-white rounded-full flex items-center justify-center font-bold">
-                {tgsApproaching2Years.threeMonths.length}
-              </span>
-              <span className="font-semibold text-green-700">Within 3 Months</span>
-            </div>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {tgsApproaching2Years.threeMonths.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No groups</p>
-              ) : (
-                tgsApproaching2Years.threeMonths.map(row => (
-                  <div key={row['Issue']} className="text-sm bg-white rounded p-2">
-                    <a
-                      href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-gray-800 hover:text-green-600"
-                    >
-                      {row['Summary']}
-                    </a>
-                    <div className="text-xs text-gray-500">{row.daysUntil} days</div>
-                    <div className="text-xs text-gray-400">
-                      {row['Recharter Approval Date'] && new Date(row['Recharter Approval Date']).getTime() === row.referenceDate.getTime()
-                        ? `Rechartered: ${row['Recharter Approval Date']}`
-                        : `Created: ${row['Creation Date']}`}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* 6 Months */}
-          <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-8 h-8 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold">
-                {tgsApproaching2Years.sixMonths.length}
-              </span>
-              <span className="font-semibold text-blue-700">Within 6 Months</span>
-            </div>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {tgsApproaching2Years.sixMonths.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No groups</p>
-              ) : (
-                tgsApproaching2Years.sixMonths.map(row => (
-                  <div key={row['Issue']} className="text-sm bg-white rounded p-2">
-                    <a
-                      href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-gray-800 hover:text-blue-600"
-                    >
-                      {row['Summary']}
-                    </a>
-                    <div className="text-xs text-gray-500">{row.daysUntil} days</div>
-                    <div className="text-xs text-gray-400">
-                      {row['Recharter Approval Date'] && new Date(row['Recharter Approval Date']).getTime() === row.referenceDate.getTime()
-                        ? `Rechartered: ${row['Recharter Approval Date']}`
-                        : `Created: ${row['Creation Date']}`}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Upcoming Elections */}
-      <div>
-        <h2 className="text-xl font-bold text-berkeley-blue mb-4">Upcoming Elections</h2>
-        <p className="text-gray-600 text-sm mb-6">TGs and SIGs with scheduled elections. "Now" shows groups that should be running elections (overdue or last election was 12+ months ago).</p>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Now - Elections that should be happening */}
-          <div className="bg-purple-50 rounded-xl p-4 border border-purple-200">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-8 h-8 bg-purple-600 text-white rounded-full flex items-center justify-center font-bold animate-pulse">
-                {upcomingElections.now.length}
-              </span>
-              <span className="font-semibold text-purple-700">Now</span>
-            </div>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {upcomingElections.now.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No overdue elections</p>
-              ) : (
-                upcomingElections.now.map(row => (
-                  <div key={row['Issue']} className="text-sm bg-white rounded p-2 border-l-2 border-purple-400">
-                    <a
-                      href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-gray-800 hover:text-purple-600"
-                    >
-                      {row['Summary']}
-                    </a>
-                    <div className="text-xs text-purple-600 font-medium">{row.reason}</div>
-                    {row.lastElectionMonth && row.lastElectionYear && (
-                      <div className="text-xs text-gray-500">Last: {row.lastElectionMonth} {row.lastElectionYear}</div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* 1 Month */}
-          <div className="bg-red-50 rounded-xl p-4 border border-red-100">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center font-bold">
-                {upcomingElections.oneMonth.length}
-              </span>
-              <span className="font-semibold text-red-700">Next Month</span>
-            </div>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {upcomingElections.oneMonth.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No elections</p>
-              ) : (
-                upcomingElections.oneMonth.map(row => (
-                  <div key={row['Issue']} className="text-sm bg-white rounded p-2">
-                    <a
-                      href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-gray-800 hover:text-red-600"
-                    >
-                      {row['Summary']}
-                    </a>
-                    <div className="text-xs text-gray-500">{row.electionMonth} {row.electionYear}</div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* 2 Months */}
-          <div className="bg-yellow-50 rounded-xl p-4 border border-yellow-100">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-8 h-8 bg-yellow-500 text-white rounded-full flex items-center justify-center font-bold">
-                {upcomingElections.twoMonths.length}
-              </span>
-              <span className="font-semibold text-yellow-700">In 2 Months</span>
-            </div>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {upcomingElections.twoMonths.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No elections</p>
-              ) : (
-                upcomingElections.twoMonths.map(row => (
-                  <div key={row['Issue']} className="text-sm bg-white rounded p-2">
-                    <a
-                      href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-gray-800 hover:text-yellow-600"
-                    >
-                      {row['Summary']}
-                    </a>
-                    <div className="text-xs text-gray-500">{row.electionMonth} {row.electionYear}</div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* 3 Months */}
-          <div className="bg-green-50 rounded-xl p-4 border border-green-100">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-8 h-8 bg-green-500 text-white rounded-full flex items-center justify-center font-bold">
-                {upcomingElections.threeMonths.length}
-              </span>
-              <span className="font-semibold text-green-700">In 3 Months</span>
-            </div>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {upcomingElections.threeMonths.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No elections</p>
-              ) : (
-                upcomingElections.threeMonths.map(row => (
-                  <div key={row['Issue']} className="text-sm bg-white rounded p-2">
-                    <a
-                      href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-gray-800 hover:text-green-600"
-                    >
-                      {row['Summary']}
-                    </a>
-                    <div className="text-xs text-gray-500">{row.electionMonth} {row.electionYear}</div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Longest Running Technical Committees */}
-      <div>
-        <h2 className="text-xl font-bold text-berkeley-blue mb-4">Longest Running Technical Committees</h2>
-        <p className="text-gray-600 text-sm mb-6">Top 5 oldest groups by category based on creation date</p>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Task Groups */}
-          <div className="bg-gradient-to-br from-berkeley-blue/5 to-berkeley-blue/10 rounded-xl p-4 border border-berkeley-blue/20">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="w-8 h-8 bg-berkeley-blue text-white rounded-full flex items-center justify-center text-sm font-bold">TG</span>
-              <span className="font-semibold text-berkeley-blue">Task Groups</span>
-            </div>
-            <div className="space-y-2">
-              {longestRunning.tgs.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No data available</p>
-              ) : (
-                longestRunning.tgs.map((row, idx) => (
-                  <div key={row['Issue']} className="flex items-start gap-2 text-sm bg-white rounded p-2">
-                    <span className="w-5 h-5 bg-berkeley-blue/10 text-berkeley-blue rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">
-                      {idx + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <a
-                        href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium text-gray-800 hover:text-berkeley-blue block truncate"
-                        title={row['Summary']}
-                      >
-                        {row['Summary']}
-                      </a>
-                      <div className="text-xs text-berkeley-blue font-semibold">{row.years} years</div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* SIGs */}
-          <div className="bg-gradient-to-br from-california-gold/5 to-california-gold/10 rounded-xl p-4 border border-california-gold/30">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="w-8 h-8 bg-california-gold text-berkeley-blue rounded-full flex items-center justify-center text-sm font-bold">SIG</span>
-              <span className="font-semibold text-yellow-700">Special Interest Groups</span>
-            </div>
-            <div className="space-y-2">
-              {longestRunning.sigs.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No data available</p>
-              ) : (
-                longestRunning.sigs.map((row, idx) => (
-                  <div key={row['Issue']} className="flex items-start gap-2 text-sm bg-white rounded p-2">
-                    <span className="w-5 h-5 bg-california-gold/20 text-yellow-700 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">
-                      {idx + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <a
-                        href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium text-gray-800 hover:text-yellow-600 block truncate"
-                        title={row['Summary']}
-                      >
-                        {row['Summary']}
-                      </a>
-                      <div className="text-xs text-yellow-700 font-semibold">{row.years} years</div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Committees */}
-          <div className="bg-gradient-to-br from-berkeley-blue-light/5 to-berkeley-blue-light/10 rounded-xl p-4 border border-berkeley-blue-light/30">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="w-8 h-8 bg-berkeley-blue-light text-white rounded-full flex items-center justify-center text-sm font-bold">HC</span>
-              <span className="font-semibold text-berkeley-blue-light">Committees</span>
-            </div>
-            <div className="space-y-2">
-              {longestRunning.committees.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No data available</p>
-              ) : (
-                longestRunning.committees.map((row, idx) => (
-                  <div key={row['Issue']} className="flex items-start gap-2 text-sm bg-white rounded p-2">
-                    <span className="w-5 h-5 bg-berkeley-blue-light/20 text-berkeley-blue-light rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">
-                      {idx + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <a
-                        href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium text-gray-800 hover:text-berkeley-blue-light block truncate"
-                        title={row['Summary']}
-                      >
-                        {row['Summary']}
-                      </a>
-                      <div className="text-xs text-berkeley-blue-light font-semibold">{row.years} years</div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Summary Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="bg-berkeley-blue text-white rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold">{data.length}</div>
-          <div className="text-sm opacity-80">Total Groups</div>
-        </div>
-        <div className="bg-berkeley-blue-light text-white rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold">{companyPositions.length}</div>
-          <div className="text-sm opacity-80">Companies</div>
-        </div>
-        <div className="bg-california-gold text-berkeley-blue rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold">
-            {tgsApproaching2Years.oneMonth.length + tgsApproaching2Years.twoMonths.length + tgsApproaching2Years.threeMonths.length + tgsApproaching2Years.sixMonths.length}
-          </div>
-          <div className="text-sm opacity-80">Approaching 2 Years</div>
-        </div>
-        <div className="bg-purple-600 text-white rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold">{upcomingElections.now.length}</div>
-          <div className="text-sm opacity-80">Elections Now</div>
-        </div>
-        <div className="bg-green-500 text-white rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold">
-            {upcomingElections.oneMonth.length + upcomingElections.twoMonths.length + upcomingElections.threeMonths.length}
-          </div>
-          <div className="text-sm opacity-80">Upcoming Elections</div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function TrendView({ data }) {
-  const activeRows = useMemo(
-    () => data.filter(row => row['Status'] === 'Active'),
-    [data]
-  )
-
-  const activitySummary = useMemo(() => {
-    const categories = Object.keys(ACTIVITY_META).reduce((acc, key) => {
-      acc[key] = { ...ACTIVITY_META[key], count: 0 }
-      return acc
-    }, {})
-
-    activeRows.forEach(row => {
-      const meta = getActivityMeta(row['Activity Level'])
-      categories[meta.key].count += 1
-    })
-
-    const total = activeRows.length
-    const knownTotal = Math.max(total - categories.unknown.count, 0)
-    const weightedScore =
-      categories.veryActive.count * ACTIVITY_META.veryActive.score +
-      categories.active.count * ACTIVITY_META.active.score +
-      categories.low.count * ACTIVITY_META.low.score +
-      categories.inactive.count * ACTIVITY_META.inactive.score
-
-    return {
-      categories,
-      total,
-      healthScore: knownTotal > 0 ? Math.round(weightedScore / knownTotal) : 0,
-    }
-  }, [activeRows])
-
-  const globalStatus = useMemo(() => {
-    if (activitySummary.total === 0) {
-      return {
-        label: 'No Data',
-        description: 'No active committees with activity data were found.',
-        pillClass: 'bg-gray-100 text-gray-700 border-gray-200',
-        cardClass: 'from-gray-50 to-white border-gray-200',
-      }
-    }
-
-    const score = activitySummary.healthScore
-    if (score >= 80) {
-      return {
-        label: 'Healthy',
-        description: 'Most committees are Active or Very Active.',
-        pillClass: 'bg-green-100 text-green-700 border-green-200',
-        cardClass: 'from-green-50 to-emerald-50 border-green-200',
-      }
-    }
-    if (score >= 60) {
-      return {
-        label: 'Stable',
-        description: 'Activity is acceptable, but there are areas to monitor.',
-        pillClass: 'bg-blue-100 text-blue-700 border-blue-200',
-        cardClass: 'from-blue-50 to-cyan-50 border-blue-200',
-      }
-    }
-    if (score >= 40) {
-      return {
-        label: 'Watch',
-        description: 'A meaningful part of committees has low momentum.',
-        pillClass: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-        cardClass: 'from-yellow-50 to-amber-50 border-yellow-200',
-      }
-    }
-    return {
-      label: 'At Risk',
-      description: 'Low or inactive committees are dominating the portfolio.',
-      pillClass: 'bg-red-100 text-red-700 border-red-200',
-      cardClass: 'from-red-50 to-rose-50 border-red-200',
-    }
-  }, [activitySummary.healthScore, activitySummary.total])
-
-  const creationTrend = useMemo(() => {
-    const now = new Date()
-    const recentStart = new Date(now)
-    recentStart.setMonth(recentStart.getMonth() - 6)
-
-    const previousStart = new Date(now)
-    previousStart.setMonth(previousStart.getMonth() - 12)
-
-    let recent = 0
-    let previous = 0
-
-    activeRows.forEach(row => {
-      if (!row['Creation Date']) return
-      const created = new Date(row['Creation Date'])
-      if (isNaN(created.getTime())) return
-      if (created >= recentStart) {
-        recent += 1
-      } else if (created >= previousStart) {
-        previous += 1
-      }
-    })
-
-    const delta = recent - previous
-    const pctChange = previous > 0 ? Math.round((delta / previous) * 100) : null
-    const direction = delta > 0 ? 'up' : (delta < 0 ? 'down' : 'flat')
-
-    return { recent, previous, delta, pctChange, direction }
-  }, [activeRows])
-
-  const statusFlow = useMemo(() => {
-    const counts = {
-      active: 0,
-      proposing: 0,
-      structuring: 0,
-    }
-
-    data.forEach(row => {
-      if (row['Status'] === 'Active') counts.active += 1
-      if (row['Status'] === 'Proposing') counts.proposing += 1
-      if (row['Status'] === 'Structuring and Chartering') counts.structuring += 1
-    })
-
-    return counts
-  }, [data])
-
-  const watchList = useMemo(() => {
-    const now = new Date()
-    const currentMonth = now.getMonth() + 1
-    const currentYear = now.getFullYear()
-
-    return activeRows
-      .map(row => {
-        const meta = getActivityMeta(row['Activity Level'])
-        const reasons = []
-        let priority = 0
-
-        if (meta.key === 'inactive') {
-          reasons.push('Inactive activity level')
-          priority += 4
-        } else if (meta.key === 'low') {
-          reasons.push('Low activity level')
-          priority += 3
-        } else if (meta.key === 'unknown') {
-          reasons.push('Activity level missing')
-          priority += 2
-        }
-
-        if (!row['Chair'] || !row['Vice-Chair']) {
-          reasons.push('Leadership field incomplete')
-          priority += 1
-        }
-
-        const nextMonthRaw = row['Next Election Month']
-        const nextYearNum = parseInt(row['Next Election Year'], 10)
-        const nextMonthNum = MONTH_TO_NUMBER[nextMonthRaw] || parseInt(nextMonthRaw, 10)
-        if (nextMonthNum && nextYearNum) {
-          const monthsUntil = (nextYearNum - currentYear) * 12 + (nextMonthNum - currentMonth)
-          if (monthsUntil < 0) {
-            reasons.push('Election date is overdue')
-            priority += 2
-          } else if (monthsUntil === 0) {
-            reasons.push('Election due this month')
-            priority += 2
-          }
-        }
-
-        if (reasons.length === 0) return null
-        return { row, reasons: reasons.slice(0, 2), priority, meta }
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.priority - a.priority || (a.row['Summary'] || '').localeCompare(b.row['Summary'] || ''))
-      .slice(0, 10)
-  }, [activeRows])
-
-  const categoryKeys = ['veryActive', 'active', 'low', 'inactive']
-  if (activitySummary.categories.unknown.count > 0) {
-    categoryKeys.push('unknown')
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className={`rounded-xl border bg-gradient-to-br p-5 ${globalStatus.cardClass}`}>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-bold text-berkeley-blue">Global Status</h2>
-            <span className={`px-3 py-1 text-xs font-semibold border rounded-full ${globalStatus.pillClass}`}>
-              {globalStatus.label}
-            </span>
-          </div>
-          <div className="text-4xl font-bold text-berkeley-blue">{activitySummary.healthScore}</div>
-          <p className="text-xs text-gray-500 mt-1">Health score (0-100)</p>
-          <p className="text-sm text-gray-700 mt-3">{globalStatus.description}</p>
-        </div>
-
-        <div className="rounded-xl border border-gray-200 bg-white p-5">
-          <h2 className="text-lg font-bold text-berkeley-blue mb-3">Momentum Trend</h2>
-          <div className="text-2xl font-bold text-gray-800">
-            {creationTrend.direction === 'up' && (
-              <span className="text-green-700">
-                +{creationTrend.delta} more committee{creationTrend.delta !== 1 ? 's' : ''}
-              </span>
-            )}
-            {creationTrend.direction === 'down' && (
-              <span className="text-red-700">
-                {Math.abs(creationTrend.delta)} fewer committee{Math.abs(creationTrend.delta) !== 1 ? 's' : ''}
-              </span>
-            )}
-            {creationTrend.direction === 'flat' && (
-              <span className="text-gray-700">No net change</span>
-            )}
-          </div>
-          <p className="text-sm text-gray-600 mt-1">
-            New active committees in last 6 months: {creationTrend.recent}
-          </p>
-          <p className="text-xs text-gray-500 mt-2">
-            Previous 6 months: {creationTrend.previous}
-            {creationTrend.pctChange !== null && ` (${creationTrend.pctChange > 0 ? '+' : ''}${creationTrend.pctChange}%)`}
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-gray-200 bg-white p-5">
-          <h2 className="text-lg font-bold text-berkeley-blue mb-3">Pipeline</h2>
-          <div className="space-y-2 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-gray-600">Proposing</span>
-              <span className="font-semibold text-orange-700">{statusFlow.proposing}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-gray-600">Structuring & Chartering</span>
-              <span className="font-semibold text-blue-700">{statusFlow.structuring}</span>
-            </div>
-            <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-              <span className="text-gray-700 font-medium">Active</span>
-              <span className="font-bold text-green-700">{statusFlow.active}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-gray-200 bg-white p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-berkeley-blue">Activity Distribution</h2>
-          <span className="text-sm text-gray-600">
-            {activitySummary.total} Active Committee{activitySummary.total !== 1 ? 's' : ''}
-          </span>
-        </div>
-
-        <div className="h-3 w-full rounded-full bg-gray-100 overflow-hidden mb-4 flex">
-          {categoryKeys.map(key => {
-            const item = activitySummary.categories[key]
-            if (activitySummary.total === 0 || item.count === 0) return null
-            return (
-              <div
-                key={`bar-${key}`}
-                className={item.barClass}
-                style={{ width: `${(item.count / activitySummary.total) * 100}%` }}
-                title={`${item.label}: ${item.count}`}
-              />
-            )
-          })}
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-          {categoryKeys.map(key => {
-            const item = activitySummary.categories[key]
-            const pct = activitySummary.total > 0 ? Math.round((item.count / activitySummary.total) * 100) : 0
-            return (
-              <div key={key} className={`border rounded-lg p-3 ${item.panelClass}`}>
-                <div className="text-sm font-medium text-gray-700">{item.dot} {item.label}</div>
-                <div className={`text-2xl font-bold mt-1 ${item.textClass}`}>{item.count}</div>
-                <div className="text-xs text-gray-500">{pct}% of active committees</div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-gray-200 bg-white p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-berkeley-blue">Committees To Pay Attention</h2>
-          <span className="text-sm text-gray-600">{watchList.length} flagged</span>
-        </div>
-
-        {watchList.length === 0 ? (
-          <p className="text-sm text-gray-500 italic">No immediate attention items based on current signals.</p>
-        ) : (
-          <div className="space-y-3">
-            {watchList.map(item => {
-              const levelLabel = item.row['Activity Level']
-                ? formatActivityLevel(item.row['Activity Level'], true)
-                : `${ACTIVITY_META.unknown.dot} ${ACTIVITY_META.unknown.label}`
-              return (
-                <div key={item.row['Issue']} className={`rounded-lg border p-3 ${item.meta.panelClass}`}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <a
-                        href={buildJiraUrl(item.row['Issue'])}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-semibold text-gray-800 hover:text-berkeley-blue"
-                      >
-                        {item.row['Summary']}
-                      </a>
-                      <div className="text-xs text-gray-500">{item.row['Issue']}</div>
-                      <div className="text-xs text-gray-600 mt-1">{item.reasons.join(' • ')}</div>
-                    </div>
-                    <span className={`px-2 py-1 text-xs font-medium rounded ${item.meta.badgeClass}`}>
-                      {levelLabel}
-                    </span>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
 // Footer Component
 function Footer() {
   return (
@@ -3118,7 +1941,7 @@ function App() {
               onClick={() => setActiveTab('trend')}
               icon={<TrendIcon />}
             >
-              Trend
+              History
             </TabButton>
           </div>
         </div>
@@ -3132,7 +1955,7 @@ function App() {
               value={searchTerm}
               onChange={setSearchTerm}
               onClear={() => setSearchTerm('')}
-              resultCount={loading ? null : filteredData.filter(row => ['Active', 'Proposing', 'Structuring and Chartering'].includes(row['Status'])).length}
+              resultCount={loading ? null : countDistinct(filteredData.filter(row => ['Active', 'Proposing', 'Structuring and Chartering'].includes(row['Status'])))}
             />
           </div>
         </div>
@@ -3165,12 +1988,12 @@ function App() {
             )}
             {activeTab === 'stats' && (
               <div className="p-6">
-                <StatisticsView data={data.filter(row => row['Status'] === 'Active')} />
+                <StatisticsView rows={data} />
               </div>
             )}
             {activeTab === 'trend' && (
               <div className="p-6">
-                <TrendView data={data.filter(row => ['Active', 'Proposing', 'Structuring and Chartering'].includes(row['Status']))} />
+                <HistoryView rows={data} />
               </div>
             )}
           </div>

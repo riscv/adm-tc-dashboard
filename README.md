@@ -6,8 +6,8 @@ A React-based viewer for RISC-V Technical Committees, providing table, graph, an
 
 - **Table View**: Searchable, grouped table of all technical committees
 - **Graph View**: Interactive D3.js force-directed graph showing organizational hierarchy
-- **Statistics View**: Company positions, upcoming elections, groups approaching 2 years, and longest running committees
-- **Trend View**: Activity distribution, watchlist, global health score, and momentum trend
+- **Statistics View**: leadership seats that need a call (vacant, lapsed or ending within 90 days, from the term end dates and open RVC elections), elections in progress, acting leaders, the TG 2-year counter with extensions, groups by type and governing committee, Activity Level, and Jira data issues. Every number lists the groups it counts.
+- **History View**: proposals, groups that became Active, and groups archived or cancelled per quarter (from the Jira status changelog, since 2025-04-01), and the groups waiting to be chartered with time in status
 - **Email Integration**: Quick mailto links to contact chairs and vice-chairs
 - **Responsive Design**: Works on desktop and mobile devices
 - **RISC-V Branding**: Uses official California Gold and Berkeley Blue color scheme
@@ -68,6 +68,10 @@ export JIRA_API_TOKEN="your-api-token"
 # Run the script
 python get-rvg-issues.py --output grouped-csv --save public/rvg-grouped.csv
 ```
+
+The grouped CSV has one row per (group, governing committee) pair, followed by
+history-only rows for Archived, Cancelled and TODO groups. Pass `--no-history`
+to skip the changelog calls and those rows.
 
 ### Environment Variables
 
