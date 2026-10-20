@@ -5,6 +5,8 @@ import { groupType } from './stats'
 
 // Environment flag to show/hide emails (set VITE_SHOW_EMAILS=true to enable)
 const SHOW_EMAILS = import.meta.env.VITE_SHOW_EMAILS === 'true'
+// Statistics and History are off until the Jira data behind them is cleaned up.
+const SHOW_ANALYTICS = import.meta.env.VITE_SHOW_ANALYTICS === 'true'
 
 // Icons
 const TableIcon = () => (
@@ -1812,8 +1814,8 @@ function App() {
     const search = window.location.search
     if (search.includes('committees')) return 'table'
     if (search.includes('hierarchy') || search.includes('organogram') || search.includes('techorg')) return 'graph'
-    if (search.includes('statistics')) return 'stats'
-    if (search.includes('trend') || search.includes('history')) return 'trend' // ?history is the tab's current name
+    if (SHOW_ANALYTICS && search.includes('statistics')) return 'stats'
+    if (SHOW_ANALYTICS && (search.includes('trend') || search.includes('history'))) return 'trend' // ?history is the tab's current name
     return 'table'
   })
   const [graphViewMode, setGraphViewMode] = useState(() => {
@@ -1830,8 +1832,8 @@ function App() {
       else if (search.includes('organogram')) { setActiveTab('graph'); setGraphViewMode('organogram') }
       else if (search.includes('techorg')) { setActiveTab('graph'); setGraphViewMode('techorg') }
       else if (search.includes('hierarchy')) { setActiveTab('graph'); setGraphViewMode('graph') }
-      else if (search.includes('statistics')) setActiveTab('stats')
-      else if (search.includes('trend') || search.includes('history')) setActiveTab('trend')
+      else if (SHOW_ANALYTICS && search.includes('statistics')) setActiveTab('stats')
+      else if (SHOW_ANALYTICS && (search.includes('trend') || search.includes('history'))) setActiveTab('trend')
       else setActiveTab('table')
     }
     window.addEventListener('popstate', handlePopState)
@@ -1919,20 +1921,24 @@ function App() {
         >
           Hierarchy Explorer
         </TabButton>
-        <TabButton
-          active={activeTab === 'stats'}
-          onClick={() => setActiveTab('stats')}
-          icon={<ChartIcon />}
-        >
-          Statistics
-        </TabButton>
-        <TabButton
-          active={activeTab === 'trend'}
-          onClick={() => setActiveTab('trend')}
-          icon={<TrendIcon />}
-        >
-          History
-        </TabButton>
+        {SHOW_ANALYTICS && (
+          <>
+            <TabButton
+              active={activeTab === 'stats'}
+              onClick={() => setActiveTab('stats')}
+              icon={<ChartIcon />}
+            >
+              Statistics
+            </TabButton>
+            <TabButton
+              active={activeTab === 'trend'}
+              onClick={() => setActiveTab('trend')}
+              icon={<TrendIcon />}
+            >
+              History
+            </TabButton>
+          </>
+        )}
       </nav>
 
       {/* Main Content */}
