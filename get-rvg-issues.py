@@ -90,6 +90,10 @@ CF_DISBANDING_DATE = "customfield_10091"  # Group Disbanding Date
 # Cancelled, TODO) is appended to the grouped CSV as a history-only row so the
 # dashboard can build a time series from the status changelog.
 DASHBOARD_STATUSES = ("Active", "Proposing", "Structuring and Chartering")
+# Elections (calls for candidates) that have not finished. The RVC project is
+# the source of truth for an election in progress; the RVG Election Status
+# field is not always updated when a call opens or closes.
+OPEN_ELECTIONS_JQL = "project = RVC AND issuetype not in subTaskIssueTypes() AND statusCategory != Done ORDER BY key ASC"
 HISTORY_JQL = f"project = {PROJECT_KEY} AND issuetype not in subTaskIssueTypes() AND status not in (Active, Proposing, \"Structuring and Chartering\") ORDER BY key ASC"
 
 # Link types we're interested in (inward link names)
@@ -810,6 +814,7 @@ GROUPED_CSV_FIELDS = [
     "Extension Request",
     "Extension Decision Date",
     "Disbanding Date",
+    "Open Elections",
     "Status History",
     "Data Fetched At",
 ]
@@ -863,9 +868,26 @@ def _grouped_row(issue: Dict, li: Optional[Dict], fetched_at: str) -> Dict[str, 
         "Extension Request": issue.get("extension_request") or "",
         "Extension Decision Date": issue.get("extension_decision_date") or "",
         "Disbanding Date": issue.get("disbanding_date") or "",
+        "Open Elections": issue.get("open_elections") or "",
         "Status History": issue.get("status_history") or "",
         "Data Fetched At": fetched_at,
     }
+
+
+def fetch_open_elections(sess: requests.Session, verbose: bool = False) -> Dict[str, str]:
+    """
+    Map RVG key -> "RVC-1:Voting|RVC-2:No Candidates" for every RVC issue
+    (call for candidates) that is not in a Done status category.
+    """
+    out: Dict[str, List[str]] = {}
+    for raw in search_issues(sess, OPEN_ELECTIONS_JQL, ["status", "issuelinks"], verbose):
+        status = (raw.get("fields", {}).get("status") or {}).get("name") or ""
+        for link in raw.get("fields", {}).get("issuelinks", []):
+            other = link.get("inwardIssue") or link.get("outwardIssue") or {}
+            key = other.get("key", "")
+            if key.startswith(f"{PROJECT_KEY}-"):
+                out.setdefault(key, []).append(f"{raw.get('key')}:{status}")
+    return {k: "|".join(v) for k, v in out.items()}
 
 
 def save_grouped_csv(results: List[Dict], filepath: str, history_issues: Optional[List[Dict]] = None) -> None:
@@ -1038,6 +1060,9 @@ Environment variables:
     elif args.output == "grouped-csv":
         if args.save:
             history_issues: List[Dict] = []
+            open_elections = fetch_open_elections(sess, args.verbose)
+            for r in results:
+                r["issue"]["open_elections"] = open_elections.get(r["issue"]["key"], "")
             if not args.no_history:
                 print("Fetching status history (changelog) for every RVG group...")
                 for raw in search_issues(sess, HISTORY_JQL, ISSUE_FIELDS, args.verbose):
