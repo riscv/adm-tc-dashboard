@@ -566,6 +566,9 @@ function Header() {
         <a className="btn sm link-out" href="https://riscv.github.io/adm-riscv-sde/" target="_blank" rel="noopener noreferrer" title="Specification Development Explorer">
           <ExternalIcon />Development Explorer
         </a>
+        <a className="btn sm link-out" href="https://tech.riscv.org/isa-explorer/" target="_blank" rel="noopener noreferrer" title="RISC-V ISA Explorer">
+          <ExternalIcon />ISA Explorer
+        </a>
       </div>
     </header>
   )
