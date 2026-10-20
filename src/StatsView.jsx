@@ -12,7 +12,7 @@ const JIRA = 'https://riscv.atlassian.net/browse/'
 function JiraLink({ k, children }) {
   if (!k) return <span>{children}</span>
   return (
-    <a href={JIRA + k} target="_blank" rel="noopener noreferrer" className="text-berkeley-blue hover:text-california-gold hover:underline">
+    <a href={JIRA + k} target="_blank" rel="noopener noreferrer" className="text-brand font-medium hover:text-brand-hover hover:underline">
       {children || k}
     </a>
   )
@@ -22,43 +22,53 @@ function GroupCell({ g }) {
   return (
     <div>
       <JiraLink k={g.key}>{g.summary}</JiraLink>
-      <div className="text-xs text-gray-500">{g.key} · {g.type}{g.status !== 'Active' ? ` · ${g.status}` : ''}</div>
+      <div className="text-xs text-muted">{g.key} · {g.type}{g.status !== 'Active' ? ` · ${g.status}` : ''}</div>
     </div>
   )
 }
 
+// Type colour class for a governing committee summary (TSC, IC or HC).
+function committeeType(summary) {
+  if (!summary || summary.includes('TSC')) return 't-tsc'
+  if (summary.includes('(IC)')) return 't-ic'
+  if (summary.includes('(HC)')) return 't-hc'
+  return 't-tsc'
+}
+
 function Parents({ g }) {
-  if (!g.parents.length) return <span className="text-gray-400">None</span>
+  if (!g.parents.length) return <span className="text-muted">None</span>
   return <span>{g.parents.map(p => p.summary).join(', ')}</span>
 }
 
 function Section({ title, definition, children, right }) {
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5">
-      <div className="flex flex-wrap items-start justify-between gap-2 mb-1">
-        <h2 className="text-lg font-bold text-berkeley-blue">{title}</h2>
-        {right}
+    <section className="card">
+      <div className="card-header">
+        <h2 className="card-title">{title}</h2>
+        {right && <div className="card-actions">{right}</div>}
       </div>
-      {definition && <p className="text-sm text-gray-600 mb-4">{definition}</p>}
-      {children}
+      <div className="card-body">
+        {definition && <p className="card-def">{definition}</p>}
+        {children}
+      </div>
     </section>
   )
 }
 
 function Table({ columns, rows, empty = 'None.' }) {
-  if (!rows.length) return <p className="text-sm text-gray-500 italic">{empty}</p>
+  if (!rows.length) return <p className="text-sm text-muted italic">{empty}</p>
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+    <div className="table-frame">
+      <table className="data-table">
         <thead>
-          <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-200">
-            {columns.map(c => <th key={c.label} className="px-2 py-2 font-semibold">{c.label}</th>)}
+          <tr>
+            {columns.map(c => <th key={c.label}>{c.label}</th>)}
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-100">
+        <tbody>
           {rows.map((r, i) => (
-            <tr key={i} className="align-top hover:bg-california-gold/5">
-              {columns.map(c => <td key={c.label} className="px-2 py-2">{c.render(r)}</td>)}
+            <tr key={i} className="row-hover">
+              {columns.map(c => <td key={c.label}>{c.render(r)}</td>)}
             </tr>
           ))}
         </tbody>
@@ -68,21 +78,16 @@ function Table({ columns, rows, empty = 'None.' }) {
 }
 
 function MetricCard({ label, count, definition, selected, onClick, tone = 'blue' }) {
-  const tones = {
-    blue: 'border-berkeley-blue/30',
-    red: 'border-red-300',
-    amber: 'border-yellow-300',
-    gray: 'border-gray-300',
-  }
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`text-left rounded-xl border-2 p-4 transition-colors ${tones[tone]} ${selected ? 'bg-california-gold/20 border-california-gold' : 'bg-white hover:bg-gray-50'}`}
+      className={`metric tone-${tone} ${selected ? 'is-selected' : ''}`}
       aria-pressed={selected}
     >
-      <div className="text-3xl font-bold text-berkeley-blue">{count}</div>
-      <div className="text-sm font-semibold text-gray-800">{label}</div>
-      <div className="text-xs text-gray-500 mt-1">{definition}</div>
+      <div className="metric-num">{count}</div>
+      <div className="metric-label">{label}</div>
+      <div className="metric-def">{definition}</div>
     </button>
   )
 }
@@ -90,14 +95,17 @@ function MetricCard({ label, count, definition, selected, onClick, tone = 'blue'
 function ElectionCell({ g }) {
   const running = runningElections(g)
   const none = noCandidateCalls(g)
-  if (!running.length && !none.length) return <span className="text-gray-400">No open call</span>
+  if (!running.length && !none.length) return <span className="text-muted">No open call</span>
   return (
-    <div className="space-y-0.5">
-      {running.map(e => <div key={e.key}><JiraLink k={e.key} /> <span className="text-green-700">{e.status}</span></div>)}
-      {none.map(e => <div key={e.key}><JiraLink k={e.key} /> <span className="text-red-700">{e.status}</span></div>)}
+    <div className="space-y-1">
+      {running.map(e => <div key={e.key} className="whitespace-nowrap"><JiraLink k={e.key} /> <span className="pill pill-ok ml-1">{e.status}</span></div>)}
+      {none.map(e => <div key={e.key} className="whitespace-nowrap"><JiraLink k={e.key} /> <span className="pill pill-bad ml-1">{e.status}</span></div>)}
     </div>
   )
 }
+
+// Accent colour of each Activity Level tile (same meaning as the table chips).
+const ACTIVITY_TONE = { veryActive: 'tone-green', active: 'tone-blue', low: 'tone-amber', inactive: 'tone-red', unknown: 'tone-gray' }
 
 const STATE_LABEL = {
   vacant: 'Vacant',
@@ -112,22 +120,22 @@ function seatColumns(today) {
     { label: 'Group', render: s => <GroupCell g={s.group} /> },
     { label: 'Governing committee', render: s => <Parents g={s.group} /> },
     { label: 'Seat', render: s => s.label },
-    { label: 'Holder', render: s => s.name || <span className="text-red-700">Vacant</span> },
-    { label: 'Term', render: s => s.end === null ? <span className="text-gray-400">Not recorded</span> : `${dayToISO(s.start) || '?'} to ${dayToISO(s.end)}` },
+    { label: 'Holder', render: s => s.name || <span className="text-bad">Vacant</span> },
+    { label: 'Term', render: s => s.end === null ? <span className="text-muted">Not recorded</span> : `${dayToISO(s.start) || '?'} to ${dayToISO(s.end)}` },
     {
       label: 'Days left',
-      render: s => s.end === null ? '' : (s.end < today ? <span className="text-red-700">{today - s.end} days ago</span> : `${s.end - today}`),
+      render: s => s.end === null ? '' : (s.end < today ? <span className="text-bad">{today - s.end} days ago</span> : `${s.end - today}`),
     },
     { label: 'State', render: s => s.states.map(x => STATE_LABEL[x]).join(', ') },
     { label: 'Election (RVC)', render: s => <ElectionCell g={s.group} /> },
-    { label: 'Note', render: s => s.decision ? <span className="text-gray-600 italic">{s.decision}</span> : '' },
+    { label: 'Note', render: s => s.decision ? <span className="text-muted italic">{s.decision}</span> : '' },
   ]
 }
 
 function FetchedNote({ groups, today }) {
   const fetched = dataFetchedAt(groups)
   return (
-    <p className="text-xs text-gray-500">
+    <p className="text-xs text-muted px-1">
       Source: Jira projects RVG (groups) and RVC (elections){fetched ? `, fetched ${fetched.replace('T', ' ').replace('Z', ' UTC')}` : ''}. Dates are compared with today, {dayToISO(today)}. Every count is of distinct groups or seats; a group with two governing committees is counted once.
     </p>
   )
@@ -192,11 +200,11 @@ export function StatisticsView({ rows }) {
       <>
         <Table columns={seatCols} rows={m.needCall} empty="No seat needs a call." />
         {m.excluded.length > 0 && (
-          <p className="text-xs text-gray-600 mt-3">
+          <p className="text-xs text-muted mt-3">
             Not listed by decision ({m.excluded.length} seats): {m.excluded.map(s => `${s.group.summary} ${s.label}`).join('; ')}. {Array.from(new Set(m.excluded.map(s => s.decision))).join(' ')}
           </p>
         )}
-        <p className="text-xs text-gray-600 mt-1">
+        <p className="text-xs text-muted mt-1">
           Not elected, so not counted: {Object.entries(NOT_ELECTED).map(([k, v]) => `${k} (${v})`).join('; ')}. Proposing groups are not counted; their proposer is recorded as Acting Chair until the group is chartered.
         </p>
       </>
@@ -223,8 +231,8 @@ export function StatisticsView({ rows }) {
           { label: 'Task Group', render: r => <GroupCell g={r.group} /> },
           { label: 'Counter starts', render: r => `${dayToISO(r.ref)}${r.viaRecharter ? ' (recharter)' : ''}` },
           { label: '2 years passed', render: r => `${dayToISO(r.twoYear)} (${today - r.twoYear} days ago)` },
-          { label: 'Extension (Jira)', render: r => r.group.extension || <span className="text-gray-400">None recorded</span> },
-          { label: 'Note', render: r => KNOWN_DECISIONS[r.group.key] && /Recharter/i.test(KNOWN_DECISIONS[r.group.key].note) ? <span className="italic text-gray-600">{KNOWN_DECISIONS[r.group.key].note}</span> : '' },
+          { label: 'Extension (Jira)', render: r => r.group.extension || <span className="text-muted">None recorded</span> },
+          { label: 'Note', render: r => KNOWN_DECISIONS[r.group.key] && /Recharter/i.test(KNOWN_DECISIONS[r.group.key].note) ? <span className="italic text-muted">{KNOWN_DECISIONS[r.group.key].note}</span> : '' },
         ]}
         rows={twoPastNoExt}
       />
@@ -244,7 +252,7 @@ export function StatisticsView({ rows }) {
   const typeCellGroups = typeCell ? m.byType[typeCell.type][typeCell.status] : []
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <FetchedNote groups={groups} today={today} />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -263,51 +271,51 @@ export function StatisticsView({ rows }) {
         title="Groups by type and status"
         definition={`Distinct RVG groups by Group Type (Jira field) and status. ${activeTypeTotal} groups are Active. Click a number to list the groups.`}
       >
-        <div className="overflow-x-auto">
-          <table className="text-sm">
+        <div className="table-frame">
+          <table className="data-table">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-200">
-                <th className="px-3 py-2">Type</th>
-                {DASHBOARD_STATUSES.map(s => <th key={s} className="px-3 py-2 text-right">{s}</th>)}
+              <tr>
+                <th>Type</th>
+                {DASHBOARD_STATUSES.map(s => <th key={s} className="num">{s}</th>)}
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody>
               {TYPE_ORDER.map(t => {
                 const total = DASHBOARD_STATUSES.reduce((n, s) => n + m.byType[t][s].length, 0)
                 if (!total) return null
                 return (
                   <tr key={t}>
-                    <td className="px-3 py-2 font-medium">{TYPE_LABELS[t]} ({t})</td>
+                    <td className="font-medium whitespace-nowrap"><span className={`legend-dot inline-block mr-2 align-middle t-${t.toLowerCase()}`} aria-hidden="true" />{TYPE_LABELS[t]} ({t})</td>
                     {DASHBOARD_STATUSES.map(s => {
                       const n = m.byType[t][s].length
                       const on = typeCell && typeCell.type === t && typeCell.status === s
                       return (
-                        <td key={s} className="px-3 py-2 text-right">
+                        <td key={s} className="num">
                           {n ? (
-                            <button className={`font-semibold underline decoration-dotted ${on ? 'text-california-gold' : 'text-berkeley-blue'}`} onClick={() => setTypeCell(on ? null : { type: t, status: s })}>{n}</button>
-                          ) : <span className="text-gray-300">0</span>}
+                            <button type="button" className={`num-link ${on ? 'is-on' : ''}`} onClick={() => setTypeCell(on ? null : { type: t, status: s })}>{n}</button>
+                          ) : <span className="text-line-strong">0</span>}
                         </td>
                       )
                     })}
                   </tr>
                 )
               })}
-              <tr className="font-semibold">
-                <td className="px-3 py-2">Total</td>
-                {DASHBOARD_STATUSES.map(s => <td key={s} className="px-3 py-2 text-right">{TYPE_ORDER.reduce((n, t) => n + m.byType[t][s].length, 0)}</td>)}
+              <tr className="font-semibold bg-surface-muted">
+                <td>Total</td>
+                {DASHBOARD_STATUSES.map(s => <td key={s} className="num">{TYPE_ORDER.reduce((n, t) => n + m.byType[t][s].length, 0)}</td>)}
               </tr>
             </tbody>
           </table>
         </div>
         {typeCell && (
           <div className="mt-4">
-            <h3 className="text-sm font-semibold text-gray-700 mb-2">{TYPE_LABELS[typeCell.type]}, {typeCell.status} ({typeCellGroups.length})</h3>
+            <h3 className="text-sm font-semibold text-ink mb-2">{TYPE_LABELS[typeCell.type]}, {typeCell.status} ({typeCellGroups.length})</h3>
             <Table
               columns={[
                 { label: 'Group', render: g => <GroupCell g={g} /> },
                 { label: 'Governing committee', render: g => <Parents g={g} /> },
-                { label: 'Chair', render: g => g.chair || <span className="text-red-700">Vacant</span> },
-                { label: 'Vice-Chair', render: g => g.vc || <span className="text-red-700">Vacant</span> },
+                { label: 'Chair', render: g => g.chair || <span className="text-bad">Vacant</span> },
+                { label: 'Vice-Chair', render: g => g.vc || <span className="text-bad">Vacant</span> },
               ]}
               rows={typeCellGroups}
             />
@@ -326,20 +334,20 @@ export function StatisticsView({ rows }) {
             const counts = DASHBOARD_STATUSES.map(s => item.groups.filter(g => g.status === s).length)
             return (
               <div key={item.summary}>
-                <button className="w-full flex items-center gap-3 text-left text-sm hover:bg-gray-50 rounded px-1 py-1" onClick={() => setGovOpen(open ? null : item.summary)}>
-                  <span className="w-64 truncate">{item.summary}</span>
-                  <span className="flex-1 h-4 bg-gray-100 rounded overflow-hidden">
-                    <span className="block h-4 bg-berkeley-blue-light" style={{ width: `${(item.groups.length / max) * 100}%` }} />
+                <button type="button" className={`w-full grid grid-cols-[1fr_auto] sm:grid-cols-[16rem_1fr_auto] items-center gap-x-3 gap-y-1 text-left text-sm rounded-control px-2 py-1.5 border ${open ? 'border-brand bg-brand-soft' : 'border-transparent hover:bg-surface-muted'}`} onClick={() => setGovOpen(open ? null : item.summary)} aria-expanded={open}>
+                  <span className="truncate font-medium inline-flex items-center gap-2 min-w-0"><span className={`legend-dot ${committeeType(item.summary)}`} aria-hidden="true" /><span className="truncate">{item.summary}</span></span>
+                  <span className="bar-track col-span-2 sm:col-span-1 order-last sm:order-none">
+                    <span className="bar-fill" style={{ width: `${(item.groups.length / max) * 100}%`, background: 'var(--tc, var(--brand))' }} />
                   </span>
-                  <span className="w-44 text-right text-gray-700"><b>{item.groups.length}</b> ({counts[0]} Active, {counts[2]} Structuring, {counts[1]} Proposing)</span>
+                  <span className="text-right text-muted text-xs sm:text-[13px] whitespace-nowrap"><b className="text-ink">{item.groups.length}</b> ({counts[0]} Active, {counts[2]} Structuring, {counts[1]} Proposing)</span>
                 </button>
                 {open && (
-                  <div className="ml-4 my-2">
+                  <div className="ml-2 sm:ml-4 mt-2 mb-3">
                     <Table
                       columns={[
                         { label: 'Group', render: g => <GroupCell g={g} /> },
-                        { label: 'Chair', render: g => g.chair || <span className="text-red-700">Vacant</span> },
-                        { label: 'Vice-Chair', render: g => g.vc || <span className="text-red-700">Vacant</span> },
+                        { label: 'Chair', render: g => g.chair || <span className="text-bad">Vacant</span> },
+                        { label: 'Vice-Chair', render: g => g.vc || <span className="text-bad">Vacant</span> },
                         { label: 'Activity Level', render: g => ACTIVITY_LABELS[g.activity] },
                       ]}
                       rows={item.groups}
@@ -359,20 +367,20 @@ export function StatisticsView({ rows }) {
         <Table
           columns={[
             { label: 'Task Group', render: r => <GroupCell g={r.group} /> },
-            { label: 'Counter starts', render: r => r.ref === null ? <span className="text-red-700">No creation date</span> : `${dayToISO(r.ref)}${r.viaRecharter ? ' (recharter)' : ''}` },
+            { label: 'Counter starts', render: r => r.ref === null ? <span className="text-bad">No creation date</span> : `${dayToISO(r.ref)}${r.viaRecharter ? ' (recharter)' : ''}` },
             { label: 'Age', render: r => r.ref === null ? '' : formatAge(r.ref, today) },
             { label: '2 years', render: r => r.ref === null ? '' : (r.state === 'past' ? `${dayToISO(r.twoYear)} (passed)` : `${dayToISO(r.twoYear)} (in ${r.daysToTwoYear} days)`) },
             {
               label: 'Extension (Jira)',
-              render: r => !r.group.extension ? <span className="text-gray-400">None recorded</span> : (
-                <span>{r.group.extension}{r.group.extensionDecision !== null ? ` ${dayToISO(r.group.extensionDecision)}` : ''}{r.extensionPending && r.state === 'past' && <span className="block text-xs text-red-700">Awaiting TSC decision</span>}</span>
+              render: r => !r.group.extension ? <span className="text-muted">None recorded</span> : (
+                <span>{r.group.extension}{r.group.extensionDecision !== null ? ` ${dayToISO(r.group.extensionDecision)}` : ''}{r.extensionPending && r.state === 'past' && <span className="block text-xs text-bad">Awaiting TSC decision</span>}</span>
               ),
             },
             {
               label: 'Decision + 1 year',
-              render: r => r.deadline === null ? '' : (r.daysToDeadline < 0 ? <span className="text-red-700">{dayToISO(r.deadline)} (passed)</span> : `${dayToISO(r.deadline)} (in ${r.daysToDeadline} days)`),
+              render: r => r.deadline === null ? '' : (r.daysToDeadline < 0 ? <span className="text-bad">{dayToISO(r.deadline)} (passed)</span> : `${dayToISO(r.deadline)} (in ${r.daysToDeadline} days)`),
             },
-            { label: '2+ Years Active (Jira)', render: r => <span>{r.group.twoYearsField}{r.fieldMismatch && <span className="block text-xs text-red-700">Disagrees with dates</span>}</span> },
+            { label: '2+ Years Active (Jira)', render: r => <span>{r.group.twoYearsField}{r.fieldMismatch && <span className="block text-xs text-bad">Disagrees with dates</span>}</span> },
           ]}
           rows={[...twoSoon, ...twoPast, ...twoMissing]}
         />
@@ -384,10 +392,10 @@ export function StatisticsView({ rows }) {
       >
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           {Object.entries(ACTIVITY_LABELS).map(([k, label]) => (
-            <button key={k} onClick={() => setActivityOpen(activityOpen === k ? null : k)} className={`text-left border rounded-lg p-3 ${activityOpen === k ? 'border-california-gold bg-california-gold/10' : 'border-gray-200 hover:bg-gray-50'}`}>
-              <div className="text-sm text-gray-700">{label}</div>
-              <div className="text-2xl font-bold text-berkeley-blue">{m.activity[k].length}</div>
-              <div className="text-xs text-gray-500">{m.active.length ? Math.round((m.activity[k].length / m.active.length) * 100) : 0}% of {m.active.length} Active groups</div>
+            <button key={k} onClick={() => setActivityOpen(activityOpen === k ? null : k)} type="button" className={`metric ${ACTIVITY_TONE[k] || 'tone-gray'} ${activityOpen === k ? 'is-selected' : ''}`} aria-pressed={activityOpen === k}>
+              <div className="metric-label !mt-0">{label}</div>
+              <div className="metric-num">{m.activity[k].length}</div>
+              <div className="metric-def">{m.active.length ? Math.round((m.activity[k].length / m.active.length) * 100) : 0}% of {m.active.length} Active groups</div>
             </button>
           ))}
         </div>
@@ -397,7 +405,7 @@ export function StatisticsView({ rows }) {
               columns={[
                 { label: 'Group', render: g => <GroupCell g={g} /> },
                 { label: 'Governing committee', render: g => <Parents g={g} /> },
-                { label: 'Chair', render: g => g.chair || <span className="text-red-700">Vacant</span> },
+                { label: 'Chair', render: g => g.chair || <span className="text-bad">Vacant</span> },
               ]}
               rows={m.activity[activityOpen]}
             />
@@ -448,14 +456,14 @@ export function HistoryView({ rows }) {
   const pipe = useMemo(() => pipeline(groups, today), [groups, today])
   const max = Math.max(1, ...quarters.flatMap(q => [q.proposed.length, q.activated.length, q.closed.length]))
   const kinds = [
-    { id: 'proposed', label: 'New proposals', bar: 'bg-orange-400', def: 'first time a group entered Proposing' },
-    { id: 'activated', label: 'Became Active', bar: 'bg-green-600', def: 'moved from Proposing, Structuring and Chartering or TODO to Active' },
-    { id: 'closed', label: 'Archived or cancelled', bar: 'bg-gray-500', def: 'moved to Archived or Cancelled' },
+    { id: 'proposed', label: 'New proposals', bar: 'var(--warn)', def: 'first time a group entered Proposing' },
+    { id: 'activated', label: 'Became Active', bar: 'var(--ok)', def: 'moved from Proposing, Structuring and Chartering or TODO to Active' },
+    { id: 'closed', label: 'Archived or cancelled', bar: '#94a3b8', def: 'moved to Archived or Cancelled' },
   ]
   const openList = open ? quarters.find(q => q.quarter === open.quarter)[open.kind] : []
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <FetchedNote groups={groups} today={today} />
 
       <Section
@@ -463,29 +471,30 @@ export function HistoryView({ rows }) {
         definition={`Status changes recorded in the Jira changelog of every RVG group, including groups now archived, from ${HISTORY_START}. Earlier entries are left out because two bulk workflow migrations (November 2023 and February 2025) reset the status of most groups at once. Dates are when Jira recorded the change; groups marked * already existed (first mailing-list email more than a year earlier) and were entered into Jira late. Click a number to list the groups.`}
       >
         {!hasHistory ? (
-          <p className="text-sm text-gray-500 italic">This data file has no Status History column; regenerate it with get-rvg-issues.py.</p>
+          <p className="text-sm text-muted italic">This data file has no Status History column; regenerate it with get-rvg-issues.py.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div>
+            <div className="table-frame">
+            <table className="data-table">
               <thead>
-                <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-200">
-                  <th className="px-2 py-2">Quarter</th>
-                  {kinds.map(k => <th key={k.id} className="px-2 py-2" title={k.def}>{k.label}</th>)}
+                <tr>
+                  <th>Quarter</th>
+                  {kinds.map(k => <th key={k.id} title={k.def}><span className="inline-flex items-center gap-1.5"><span className="legend-dot" style={{ background: k.bar }} aria-hidden="true" />{k.label}</span></th>)}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody>
                 {quarters.map(q => (
                   <tr key={q.quarter}>
-                    <td className="px-2 py-2 font-medium whitespace-nowrap">{q.quarter}{q.partial ? ' (to date)' : ''}</td>
+                    <td className="font-medium whitespace-nowrap">{q.quarter}{q.partial ? ' (to date)' : ''}</td>
                     {kinds.map(k => {
                       const list = q[k.id]
                       const on = open && open.quarter === q.quarter && open.kind === k.id
                       return (
-                        <td key={k.id} className="px-2 py-2">
-                          <button className="flex items-center gap-2 w-full" onClick={() => setOpen(on ? null : { quarter: q.quarter, kind: k.id })} disabled={!list.length}>
-                            <span className={`w-8 text-right font-semibold ${on ? 'text-california-gold' : 'text-berkeley-blue'} ${list.length ? 'underline decoration-dotted' : 'text-gray-300'}`}>{list.length}</span>
-                            <span className="flex-1 h-3 bg-gray-100 rounded overflow-hidden">
-                              <span className={`block h-3 ${k.bar}`} style={{ width: `${(list.length / max) * 100}%` }} />
+                        <td key={k.id} className="min-w-[140px]">
+                          <button type="button" className={`flex items-center gap-2 w-full ${list.length ? 'cursor-pointer' : 'cursor-default'}`} onClick={() => setOpen(on ? null : { quarter: q.quarter, kind: k.id })} disabled={!list.length}>
+                            <span className={`w-7 text-right font-semibold tabular-nums ${list.length ? `underline decoration-dotted underline-offset-[3px] ${on ? 'text-gold' : 'text-brand'}` : 'text-line-strong'}`}>{list.length}</span>
+                            <span className="bar-track flex-1">
+                              <span className="bar-fill" style={{ width: `${(list.length / max) * 100}%`, background: k.bar }} />
                             </span>
                           </button>
                         </td>
@@ -495,18 +504,19 @@ export function HistoryView({ rows }) {
                 ))}
               </tbody>
             </table>
-            <ul className="text-xs text-gray-500 mt-2 list-disc ml-5">
+            </div>
+            <ul className="text-xs text-muted mt-3 list-disc ml-5 space-y-0.5">
               {kinds.map(k => <li key={k.id}><b>{k.label}</b>: {k.def}.</li>)}
             </ul>
           </div>
         )}
         {open && (
           <div className="mt-4">
-            <h3 className="text-sm font-semibold text-gray-700 mb-2">{kinds.find(k => k.id === open.kind).label}, {open.quarter} ({openList.length})</h3>
+            <h3 className="text-sm font-semibold text-ink mb-2">{kinds.find(k => k.id === open.kind).label}, {open.quarter} ({openList.length})</h3>
             <Table
               columns={[
                 { label: 'Date', render: e => dayToISO(e.day) },
-                { label: 'Group', render: e => <span><GroupCell g={e.group} />{e.recordedLate && <span className="text-xs text-gray-500">* existed before (first email {dayToISO(e.group.lifecycleStart)})</span>}</span> },
+                { label: 'Group', render: e => <span><GroupCell g={e.group} />{e.recordedLate && <span className="text-xs text-muted">* existed before (first email {dayToISO(e.group.lifecycleStart)})</span>}</span> },
                 { label: 'From status', render: e => e.from },
                 { label: 'Status now', render: e => e.group.status },
               ]}
@@ -527,7 +537,7 @@ export function HistoryView({ rows }) {
             { label: 'Status', render: p => p.group.status },
             { label: 'Since', render: p => dayToISO(p.since) },
             { label: 'Time in status', render: p => p.since === null ? '' : `${formatAge(p.since, today)} (${p.days} days)` },
-            { label: 'Chair', render: p => p.group.chair ? `${p.group.chair}${p.group.actingChair ? ' (acting)' : ''}` : <span className="text-red-700">None</span> },
+            { label: 'Chair', render: p => p.group.chair ? `${p.group.chair}${p.group.actingChair ? ' (acting)' : ''}` : <span className="text-bad">None</span> },
             { label: 'Election (RVC)', render: p => <ElectionCell g={p.group} /> },
           ]}
           rows={pipe}
