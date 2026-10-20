@@ -74,6 +74,27 @@ CF_IS_ACTING_CHAIR = "customfield_10094"  # Is Acting Chair?
 CF_IS_ACTING_VICE_CHAIR = "customfield_10102"  # Is Acting Vice-Chair?
 CF_RECHARTER_APPROVAL_DATE = "customfield_10643"  # Recharter Approval Date
 CF_PARTICIPATION_VOTING = "customfield_10443"  # Participation & Voting Rights
+CF_GROUP_TYPE = "customfield_10085"  # Group Type (IC/HC/TG/SIG/GC)
+CF_LIFECYCLE_START_DATE = "customfield_10106"  # Group Lifecycle Starting Date
+CF_CHAIR_START_DATE = "customfield_10097"  # Chair Start Date (term start)
+CF_CHAIR_END_DATE = "customfield_10098"  # Chair End Date (term end)
+CF_VICE_CHAIR_START_DATE = "customfield_10104"  # Vice-Chair Start Date (term start)
+CF_VICE_CHAIR_END_DATE = "customfield_10105"  # Vice-Chair End Date (term end)
+CF_ELECTION_STATUS = "customfield_10343"  # Election Status (CfC Open / Voting / Closed)
+CF_TWO_YEARS_ACTIVE = "customfield_10574"  # 2+ Years Active (Jira automation)
+CF_EXTENSION_REQUEST = "customfield_10608"  # 1 Year Extension Request
+CF_EXTENSION_DECISION_DATE = "customfield_10610"  # 1 Year Extension Request Decision date
+CF_DISBANDING_DATE = "customfield_10091"  # Group Disbanding Date
+
+# Statuses that are shown on the dashboard. Every other RVG group (Archived,
+# Cancelled, TODO) is appended to the grouped CSV as a history-only row so the
+# dashboard can build a time series from the status changelog.
+DASHBOARD_STATUSES = ("Active", "Proposing", "Structuring and Chartering")
+# Elections (calls for candidates) that have not finished. The RVC project is
+# the source of truth for an election in progress; the RVG Election Status
+# field is not always updated when a call opens or closes.
+OPEN_ELECTIONS_JQL = "project = RVC AND issuetype not in subTaskIssueTypes() AND statusCategory != Done ORDER BY key ASC"
+HISTORY_JQL = f"project = {PROJECT_KEY} AND issuetype not in subTaskIssueTypes() AND status not in (Active, Proposing, \"Structuring and Chartering\") ORDER BY key ASC"
 
 # Link types we're interested in (inward link names)
 LINK_TYPES_OF_INTEREST = [
@@ -85,6 +106,7 @@ LINK_TYPES_OF_INTEREST = [
 ISSUE_FIELDS = [
     "summary",
     "status",
+    "created",
     "issuelinks",
     CF_CHAIR,
     CF_CHAIR_EMAIL,
@@ -106,6 +128,17 @@ ISSUE_FIELDS = [
     CF_IS_ACTING_VICE_CHAIR,
     CF_RECHARTER_APPROVAL_DATE,
     CF_PARTICIPATION_VOTING,
+    CF_GROUP_TYPE,
+    CF_LIFECYCLE_START_DATE,
+    CF_CHAIR_START_DATE,
+    CF_CHAIR_END_DATE,
+    CF_VICE_CHAIR_START_DATE,
+    CF_VICE_CHAIR_END_DATE,
+    CF_ELECTION_STATUS,
+    CF_TWO_YEARS_ACTIVE,
+    CF_EXTENSION_REQUEST,
+    CF_EXTENSION_DECISION_DATE,
+    CF_DISBANDING_DATE,
 ]
 
 # =========================
@@ -203,10 +236,13 @@ def search_issues(
     jql: str,
     fields: List[str],
     verbose: bool = False,
+    strict: bool = False,
 ) -> List[Dict]:
     """
     Search for issues using JQL with pagination (v3 API with POST).
-    Returns list of issue data.
+    Returns list of issue data. With strict=True an HTTP error exits the run
+    instead of returning a partial list: a silent gap would publish wrong
+    counts, and a failed run keeps the last good site live.
     """
     auth = HTTPBasicAuth(JIRA_USER_EMAIL, JIRA_API_TOKEN)
     url = f"{JIRA_SERVER_URL}/rest/api/3/search/jql"
@@ -251,6 +287,8 @@ def search_issues(
                         print(f"  {msg}")
             except ValueError:
                 print(f"  {resp.text[:500]}")
+            if strict:
+                sys.exit(1)
             return all_issues
 
         data = resp.json()
@@ -408,7 +446,19 @@ def process_issue(issue_data: Dict) -> Dict:
 
     return {
         "key": issue_key,
+        "group_type": extract_dropdown_value(fields.get(CF_GROUP_TYPE)),
+        "lifecycle_start_date": fields.get(CF_LIFECYCLE_START_DATE),
+        "chair_start_date": fields.get(CF_CHAIR_START_DATE),
+        "chair_end_date": fields.get(CF_CHAIR_END_DATE),
+        "vice_chair_start_date": fields.get(CF_VICE_CHAIR_START_DATE),
+        "vice_chair_end_date": fields.get(CF_VICE_CHAIR_END_DATE),
+        "election_status": extract_dropdown_value(fields.get(CF_ELECTION_STATUS)),
+        "two_years_active": extract_dropdown_value(fields.get(CF_TWO_YEARS_ACTIVE)),
+        "extension_request": extract_dropdown_value(fields.get(CF_EXTENSION_REQUEST)),
+        "extension_decision_date": fields.get(CF_EXTENSION_DECISION_DATE),
+        "disbanding_date": fields.get(CF_DISBANDING_DATE),
         "summary": fields.get("summary", ""),
+        "created": fields.get("created"),
         "url": get_issue_url(issue_key),
         "chair": chair_info.get("displayName"),
         "chair_email": chair_email,
@@ -655,132 +705,240 @@ def save_csv(results: List[Dict], filepath: str) -> None:
         print("No data to save to CSV")
 
 
-def save_grouped_csv(results: List[Dict], filepath: str) -> None:
+def fetch_status_history(
+    sess: requests.Session,
+    issue_key: str,
+    current_status: Optional[str],
+    created: Optional[str],
+    verbose: bool = False,
+) -> str:
+    """
+    Build a compact status history for one issue from its Jira changelog.
+
+    Returns "YYYY-MM-DD:Status;YYYY-MM-DD:Status;..." where the first entry is
+    the issue creation date with its initial status and each later entry is a
+    day on which the status changed. Several transitions on the same day are
+    collapsed to the net change, and days with no net change are dropped (Jira
+    workflow migrations often bounce a status and back within seconds).
+    Returns "" if the changelog cannot be read.
+    """
+    auth = HTTPBasicAuth(JIRA_USER_EMAIL, JIRA_API_TOKEN)
+    url = f"{JIRA_SERVER_URL}/rest/api/3/issue/{issue_key}/changelog"
+    histories: List[Dict] = []
+    start_at = 0
+    while True:
+        resp = None
+        for attempt in range(6):
+            resp = sess.get(url, params={"startAt": start_at, "maxResults": 100}, auth=auth, timeout=HTTP_TIMEOUT_SECS)
+            if resp.status_code == 429:
+                _respect_retry_after(resp)
+                continue
+            break
+        if resp is None or resp.status_code != 200:
+            print(f"Warning: could not read changelog of {issue_key}: HTTP {resp.status_code if resp is not None else '?'}")
+            return ""
+        data = resp.json()
+        values = data.get("values", [])
+        histories.extend(values)
+        if data.get("isLast", True) or not values:
+            break
+        start_at += len(values)
+
+    # (timestamp, from, to) for every status change, oldest first
+    changes = []
+    for h in histories:
+        for item in h.get("items", []):
+            if item.get("field") == "status":
+                changes.append((h.get("created", ""), item.get("fromString") or "", item.get("toString") or ""))
+    changes.sort(key=lambda c: c[0])
+
+    initial = changes[0][1] if changes else (current_status or "")
+    entries = [f"{(created or '')[:10]}:{initial}"]
+    by_day: Dict[str, List[Tuple[str, str, str]]] = {}
+    order: List[str] = []
+    for c in changes:
+        day = c[0][:10]
+        if day not in by_day:
+            by_day[day] = []
+            order.append(day)
+        by_day[day].append(c)
+    state = initial
+    for day in order:
+        final = by_day[day][-1][2]
+        if final and final != state:
+            entries.append(f"{day}:{final}")
+            state = final
+    if verbose:
+        print(f"  [VERBOSE] {issue_key} history: {';'.join(entries)}")
+    return ";".join(entries)
+
+
+GROUPED_CSV_FIELDS = [
+    "Issue",
+    "Summary",
+    "Status",
+    "Creation Date",
+    "Recharter Approval Date",
+    "Charter",
+    "Confluence Space",
+    "Mailing List",
+    "Activity Level",
+    "Meeting Notes",
+    "Participation & Voting Rights",
+    "Next Election Month",
+    "Next Election Year",
+    "Last Election Month",
+    "Last Election Year",
+    "Chair",
+    "Chair Email",
+    "Chair Affiliation",
+    "Is Acting Chair",
+    "Vice-Chair",
+    "Vice-Chair Email",
+    "Vice-Chair Affiliation",
+    "Is Acting Vice-Chair",
+    "Linked Issue Summary",
+    "Linked Issue Chair",
+    "Linked Issue Chair Email",
+    "Linked Issue Chair Affiliation",
+    "Linked Issue Vice-Chair",
+    "Linked Issue Vice-Chair Email",
+    "Linked Issue Vice-Chair Affiliation",
+    "Linked Issue Mailing List",
+    "Linked Issue Participation & Voting Rights",
+    # Columns added later; appended so existing consumers keep working.
+    "Linked Issue Key",
+    "Group Type",
+    "Lifecycle Starting Date",
+    "Chair Start Date",
+    "Chair End Date",
+    "Vice-Chair Start Date",
+    "Vice-Chair End Date",
+    "Election Status",
+    "2+ Years Active",
+    "Extension Request",
+    "Extension Decision Date",
+    "Disbanding Date",
+    "Open Elections",
+    "Status History",
+    "Data Fetched At",
+]
+
+HISTORY_ONLY_BLANK_FIELDS = [
+    "Chair", "Chair Email", "Chair Affiliation", "Is Acting Chair",
+    "Vice-Chair", "Vice-Chair Email", "Vice-Chair Affiliation", "Is Acting Vice-Chair",
+    "Chair Start Date", "Chair End Date", "Vice-Chair Start Date", "Vice-Chair End Date",
+]
+
+
+def _grouped_row(issue: Dict, li: Optional[Dict], fetched_at: str) -> Dict[str, str]:
+    """One grouped-CSV row for an issue and (optionally) one governing issue."""
+    li = li or {}
+    return {
+        "Issue": issue["key"],
+        "Summary": issue["summary"],
+        "Status": issue.get("status") or "",
+        "Creation Date": issue.get("creation_date") or "",
+        "Recharter Approval Date": issue.get("recharter_approval_date") or "",
+        "Charter": issue.get("charter") or "",
+        "Confluence Space": issue.get("confluence_space") or "",
+        "Mailing List": issue.get("mailing_list") or "",
+        "Activity Level": issue.get("activity_level") or "",
+        "Meeting Notes": issue.get("meeting_notes") or "",
+        "Participation & Voting Rights": issue.get("participation_voting") or "",
+        "Next Election Month": issue.get("next_election_month") or "",
+        "Next Election Year": issue.get("next_election_year") or "",
+        "Last Election Month": issue.get("last_election_month") or "",
+        "Last Election Year": issue.get("last_election_year") or "",
+        "Chair": issue.get("chair") or "",
+        "Chair Email": issue.get("chair_email") or "",
+        "Chair Affiliation": issue.get("chair_affiliation") or "",
+        "Is Acting Chair": "Yes" if issue.get("is_acting_chair") else "No",
+        "Vice-Chair": issue.get("vice_chair") or "",
+        "Vice-Chair Email": issue.get("vice_chair_email") or "",
+        "Vice-Chair Affiliation": issue.get("vice_chair_affiliation") or "",
+        "Is Acting Vice-Chair": "Yes" if issue.get("is_acting_vice_chair") else "No",
+        "Linked Issue Summary": li.get("summary") or "",
+        "Linked Issue Chair": li.get("chair") or "",
+        "Linked Issue Chair Email": li.get("chair_email") or "",
+        "Linked Issue Chair Affiliation": li.get("chair_affiliation") or "",
+        "Linked Issue Vice-Chair": li.get("vice_chair") or "",
+        "Linked Issue Vice-Chair Email": li.get("vice_chair_email") or "",
+        "Linked Issue Vice-Chair Affiliation": li.get("vice_chair_affiliation") or "",
+        "Linked Issue Mailing List": li.get("mailing_list") or "",
+        "Linked Issue Participation & Voting Rights": li.get("participation_voting") or "",
+        "Linked Issue Key": li.get("key") or "",
+        "Group Type": issue.get("group_type") or "",
+        "Lifecycle Starting Date": issue.get("lifecycle_start_date") or "",
+        "Chair Start Date": issue.get("chair_start_date") or "",
+        "Chair End Date": issue.get("chair_end_date") or "",
+        "Vice-Chair Start Date": issue.get("vice_chair_start_date") or "",
+        "Vice-Chair End Date": issue.get("vice_chair_end_date") or "",
+        "Election Status": issue.get("election_status") or "",
+        "2+ Years Active": issue.get("two_years_active") or "",
+        "Extension Request": issue.get("extension_request") or "",
+        "Extension Decision Date": issue.get("extension_decision_date") or "",
+        "Disbanding Date": issue.get("disbanding_date") or "",
+        "Open Elections": issue.get("open_elections") or "",
+        "Status History": issue.get("status_history") or "",
+        "Data Fetched At": fetched_at,
+    }
+
+
+def fetch_open_elections(sess: requests.Session, verbose: bool = False) -> Dict[str, str]:
+    """
+    Map RVG key -> "RVC-1:Voting|RVC-2:No Candidates" for every RVC issue
+    (call for candidates) that is not in a Done status category.
+    """
+    out: Dict[str, List[str]] = {}
+    for raw in search_issues(sess, OPEN_ELECTIONS_JQL, ["status", "issuelinks"], verbose, strict=True):
+        status = (raw.get("fields", {}).get("status") or {}).get("name") or ""
+        for link in raw.get("fields", {}).get("issuelinks", []):
+            other = link.get("inwardIssue") or link.get("outwardIssue") or {}
+            key = other.get("key", "")
+            if key.startswith(f"{PROJECT_KEY}-"):
+                out.setdefault(key, []).append(f"{raw.get('key')}:{status}")
+    return {k: "|".join(v) for k, v in out.items()}
+
+
+def save_grouped_csv(results: List[Dict], filepath: str, history_issues: Optional[List[Dict]] = None) -> None:
     """
     Save results to CSV file grouped by linked issue summary.
+
+    One row per (group, governing committee) pair, so a group with two
+    governing committees appears twice; consumers must de-duplicate on
+    "Issue" when counting groups. history_issues (Archived/Cancelled/TODO
+    groups) are appended as rows without governing data; they exist only so
+    the dashboard can compute history and are filtered out of every view.
     """
+    fetched_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     rows = []
     for result in results:
         issue = result["issue"]
         linked = result["linked_issues"]
-
         if linked:
-            # One row per linked issue
             for li in linked:
-                row = {
-                    "Issue": issue["key"],
-                    "Summary": issue["summary"],
-                    "Status": issue.get("status") or "",
-                    "Creation Date": issue.get("creation_date") or "",
-                    "Recharter Approval Date": issue.get("recharter_approval_date") or "",
-                    "Charter": issue.get("charter") or "",
-                    "Confluence Space": issue.get("confluence_space") or "",
-                    "Mailing List": issue.get("mailing_list") or "",
-                    "Activity Level": issue.get("activity_level") or "",
-                    "Meeting Notes": issue.get("meeting_notes") or "",
-                    "Participation & Voting Rights": issue.get("participation_voting") or "",
-                    "Next Election Month": issue.get("next_election_month") or "",
-                    "Next Election Year": issue.get("next_election_year") or "",
-                    "Last Election Month": issue.get("last_election_month") or "",
-                    "Last Election Year": issue.get("last_election_year") or "",
-                    "Chair": issue["chair"] or "",
-                    "Chair Email": issue["chair_email"] or "",
-                    "Chair Affiliation": issue.get("chair_affiliation") or "",
-                    "Is Acting Chair": "Yes" if issue.get("is_acting_chair") else "No",
-                    "Vice-Chair": issue["vice_chair"] or "",
-                    "Vice-Chair Email": issue["vice_chair_email"] or "",
-                    "Vice-Chair Affiliation": issue.get("vice_chair_affiliation") or "",
-                    "Is Acting Vice-Chair": "Yes" if issue.get("is_acting_vice_chair") else "No",
-                    "Linked Issue Summary": li["summary"],
-                    "Linked Issue Chair": li["chair"] or "",
-                    "Linked Issue Chair Email": li["chair_email"] or "",
-                    "Linked Issue Chair Affiliation": li.get("chair_affiliation") or "",
-                    "Linked Issue Vice-Chair": li["vice_chair"] or "",
-                    "Linked Issue Vice-Chair Email": li["vice_chair_email"] or "",
-                    "Linked Issue Vice-Chair Affiliation": li.get("vice_chair_affiliation") or "",
-                    "Linked Issue Mailing List": li.get("mailing_list") or "",
-                    "Linked Issue Participation & Voting Rights": li.get("participation_voting") or "",
-                }
-                rows.append(row)
+                rows.append(_grouped_row(issue, li, fetched_at))
         else:
-            # Issue with no linked issues
-            row = {
-                "Issue": issue["key"],
-                "Summary": issue["summary"],
-                "Status": issue.get("status") or "",
-                "Creation Date": issue.get("creation_date") or "",
-                "Recharter Approval Date": issue.get("recharter_approval_date") or "",
-                "Charter": issue.get("charter") or "",
-                "Confluence Space": issue.get("confluence_space") or "",
-                "Mailing List": issue.get("mailing_list") or "",
-                "Activity Level": issue.get("activity_level") or "",
-                "Meeting Notes": issue.get("meeting_notes") or "",
-                "Participation & Voting Rights": issue.get("participation_voting") or "",
-                "Next Election Month": issue.get("next_election_month") or "",
-                "Next Election Year": issue.get("next_election_year") or "",
-                "Last Election Month": issue.get("last_election_month") or "",
-                "Last Election Year": issue.get("last_election_year") or "",
-                "Chair": issue["chair"] or "",
-                "Chair Email": issue["chair_email"] or "",
-                "Chair Affiliation": issue.get("chair_affiliation") or "",
-                "Is Acting Chair": "Yes" if issue.get("is_acting_chair") else "No",
-                "Vice-Chair": issue["vice_chair"] or "",
-                "Vice-Chair Email": issue["vice_chair_email"] or "",
-                "Vice-Chair Affiliation": issue.get("vice_chair_affiliation") or "",
-                "Is Acting Vice-Chair": "Yes" if issue.get("is_acting_vice_chair") else "No",
-                "Linked Issue Summary": "",
-                "Linked Issue Chair": "",
-                "Linked Issue Chair Email": "",
-                "Linked Issue Chair Affiliation": "",
-                "Linked Issue Vice-Chair": "",
-                "Linked Issue Vice-Chair Email": "",
-                "Linked Issue Vice-Chair Affiliation": "",
-                "Linked Issue Mailing List": "",
-                "Linked Issue Participation & Voting Rights": "",
-            }
-            rows.append(row)
+            rows.append(_grouped_row(issue, None, fetched_at))
 
     # Sort by Linked Issue Summary to group them together
     rows.sort(key=lambda x: (x["Linked Issue Summary"] or "zzz", x["Issue"]))
 
-    # Write CSV
+    # History-only rows (Archived/Cancelled/TODO groups) keep no people data:
+    # the file is public, and the History view only needs keys, names,
+    # status, type and dates.
+    seen = {r["Issue"] for r in rows}
+    for issue in history_issues or []:
+        if issue["key"] not in seen:
+            row = _grouped_row(issue, None, fetched_at)
+            for field in HISTORY_ONLY_BLANK_FIELDS:
+                row[field] = ""
+            rows.append(row)
+
     if rows:
-        fieldnames = [
-            "Issue",
-            "Summary",
-            "Status",
-            "Creation Date",
-            "Recharter Approval Date",
-            "Charter",
-            "Confluence Space",
-            "Mailing List",
-            "Activity Level",
-            "Meeting Notes",
-            "Participation & Voting Rights",
-            "Next Election Month",
-            "Next Election Year",
-            "Last Election Month",
-            "Last Election Year",
-            "Chair",
-            "Chair Email",
-            "Chair Affiliation",
-            "Is Acting Chair",
-            "Vice-Chair",
-            "Vice-Chair Email",
-            "Vice-Chair Affiliation",
-            "Is Acting Vice-Chair",
-            "Linked Issue Summary",
-            "Linked Issue Chair",
-            "Linked Issue Chair Email",
-            "Linked Issue Chair Affiliation",
-            "Linked Issue Vice-Chair",
-            "Linked Issue Vice-Chair Email",
-            "Linked Issue Vice-Chair Affiliation",
-            "Linked Issue Mailing List",
-            "Linked Issue Participation & Voting Rights",
-        ]
         with open(filepath, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer = csv.DictWriter(f, fieldnames=GROUPED_CSV_FIELDS)
             writer.writeheader()
             writer.writerows(rows)
         print(f"Saved grouped CSV to: {filepath}")
@@ -839,6 +997,11 @@ Environment variables:
         "-v",
         action="store_true",
         help="Enable verbose debug output.",
+    )
+    parser.add_argument(
+        "--no-history",
+        action="store_true",
+        help="grouped-csv only: skip the status changelog and the Archived/Cancelled/TODO history rows.",
     )
     parser.add_argument(
         "--list-link-types",
@@ -913,7 +1076,19 @@ Environment variables:
 
     elif args.output == "grouped-csv":
         if args.save:
-            save_grouped_csv(results, args.save)
+            history_issues: List[Dict] = []
+            open_elections = fetch_open_elections(sess, args.verbose)
+            for r in results:
+                r["issue"]["open_elections"] = open_elections.get(r["issue"]["key"], "")
+            if not args.no_history:
+                print("Fetching status history (changelog) for every RVG group...")
+                for raw in search_issues(sess, HISTORY_JQL, ISSUE_FIELDS, args.verbose, strict=True):
+                    history_issues.append(process_issue(raw))
+                for issue in [r["issue"] for r in results] + history_issues:
+                    issue["status_history"] = fetch_status_history(
+                        sess, issue["key"], issue.get("status"), issue.get("created"), args.verbose
+                    )
+            save_grouped_csv(results, args.save, history_issues)
         else:
             print("Grouped CSV output requires --save option to specify output file.")
             sys.exit(1)

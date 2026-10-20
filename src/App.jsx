@@ -1,8 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import * as d3 from 'd3'
+import { StatisticsView, HistoryView } from './StatsView'
+import { groupType } from './stats'
 
 // Environment flag to show/hide emails (set VITE_SHOW_EMAILS=true to enable)
 const SHOW_EMAILS = import.meta.env.VITE_SHOW_EMAILS === 'true'
+// Statistics and History are off until the Jira data behind them is cleaned up.
+const SHOW_ANALYTICS = import.meta.env.VITE_SHOW_ANALYTICS === 'true'
 
 // Icons
 const TableIcon = () => (
@@ -74,6 +78,20 @@ const SendIcon = () => (
   </svg>
 )
 
+const ExternalIcon = () => (
+  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M14 4h6v6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M20 4l-9 9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+)
+
+const ChevronIcon = () => (
+  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M6 9l6 6 6-6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+)
+
 const CopyIcon = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <rect x="9" y="9" width="13" height="13" rx="2" ry="2" strokeWidth="2"/>
@@ -95,7 +113,7 @@ function ResourceLink({ href, label, icon }) {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 text-xs text-berkeley-blue-light hover:text-california-gold transition-colors"
+      className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:text-brand-hover hover:underline"
       title={label}
     >
       {icon || <LinkIcon />}
@@ -107,16 +125,15 @@ function ResourceLink({ href, label, icon }) {
 // Status badge component
 function StatusBadge({ status }) {
   if (!status) return null
-  const colors = {
-    'Active': 'bg-green-100 text-green-700',
-    'Inactive': 'bg-gray-100 text-gray-600',
-    'Archived': 'bg-gray-100 text-gray-500',
-    'Proposing': 'bg-orange-100 text-orange-700',
-    'Structuring and Chartering': 'bg-blue-100 text-blue-700',
+  const tones = {
+    'Active': 'pill-ok',
+    'Inactive': 'pill-neutral',
+    'Archived': 'pill-neutral',
+    'Proposing': 'pill-warn',
+    'Structuring and Chartering': 'pill-info',
   }
-  const colorClass = colors[status] || 'bg-gray-100 text-gray-600'
   return (
-    <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded ${colorClass}`}>
+    <span className={`pill ${tones[status] || 'pill-neutral'}`}>
       {status}
     </span>
   )
@@ -128,66 +145,36 @@ const ACTIVITY_META = {
     label: 'Very Active',
     dot: '🟢',
     score: 100,
-    badgeClass: 'bg-green-100 text-green-700',
-    panelClass: 'bg-green-50 border-green-200',
-    textClass: 'text-green-700',
-    barClass: 'bg-green-500',
+    badgeClass: 'pill-ok',
   },
   active: {
     key: 'active',
     label: 'Active',
     dot: '🔵',
     score: 70,
-    badgeClass: 'bg-blue-100 text-blue-700',
-    panelClass: 'bg-blue-50 border-blue-200',
-    textClass: 'text-blue-700',
-    barClass: 'bg-blue-500',
+    badgeClass: 'pill-info',
   },
   low: {
     key: 'low',
     label: 'Low',
     dot: '🟡',
     score: 35,
-    badgeClass: 'bg-yellow-100 text-yellow-700',
-    panelClass: 'bg-yellow-50 border-yellow-200',
-    textClass: 'text-yellow-700',
-    barClass: 'bg-yellow-500',
+    badgeClass: 'pill-warn',
   },
   inactive: {
     key: 'inactive',
-    label: 'Inactive',
+    label: 'Stalled',
     dot: '🔴',
     score: 0,
-    badgeClass: 'bg-red-100 text-red-700',
-    panelClass: 'bg-red-50 border-red-200',
-    textClass: 'text-red-700',
-    barClass: 'bg-red-500',
+    badgeClass: 'pill-bad',
   },
   unknown: {
     key: 'unknown',
     label: 'Unspecified',
     dot: '⚪',
     score: 50,
-    badgeClass: 'bg-gray-100 text-gray-600',
-    panelClass: 'bg-gray-50 border-gray-200',
-    textClass: 'text-gray-700',
-    barClass: 'bg-gray-400',
+    badgeClass: 'pill-neutral',
   },
-}
-
-const MONTH_TO_NUMBER = {
-  'January': 1,
-  'February': 2,
-  'March': 3,
-  'April': 4,
-  'May': 5,
-  'June': 6,
-  'July': 7,
-  'August': 8,
-  'September': 9,
-  'October': 10,
-  'November': 11,
-  'December': 12,
 }
 
 function normalizeActivityLevel(level) {
@@ -207,7 +194,7 @@ function normalizeActivityLevel(level) {
   if (raw.includes('🟡') || normalized === 'low' || normalized.includes('low activity')) {
     return 'low'
   }
-  if (raw.includes('🔴') || normalized === 'inactive') {
+  if (raw.includes('🔴') || normalized === 'inactive' || normalized === 'stalled') {
     return 'inactive'
   }
   return 'unknown'
@@ -230,8 +217,9 @@ function ActivityBadge({ level }) {
   if (!level) return null
   const meta = getActivityMeta(level)
   return (
-    <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded ${meta.badgeClass}`}>
-      {formatActivityLevel(level, true)}
+    <span className={`pill ${meta.badgeClass}`} title="Activity Level (Jira)">
+      {meta.key !== 'unknown' && <span className="dot" />}
+      {formatActivityLevel(level)}
     </span>
   )
 }
@@ -252,10 +240,19 @@ function YearsActiveBadge({ creationDate }) {
   const years = calculateYearsActive(creationDate)
   if (years === null) return null
   return (
-    <span className="inline-block px-2 py-0.5 text-xs font-medium rounded bg-berkeley-blue/10 text-berkeley-blue">
+    <span className="pill pill-brand" title="Time since Group Creation Date">
       {years < 1 ? `${Math.round(years * 12)}mo` : `${years}y`}
     </span>
   )
+}
+
+// Type class of a governing committee, from its summary (TSC, HC or IC).
+function committeeTypeClass(summary) {
+  if (!summary) return ''
+  if (summary.includes('TSC')) return 't-tsc'
+  if (summary.includes('(IC)')) return 't-ic'
+  if (summary.includes('(HC)')) return 't-hc'
+  return 't-tsc'
 }
 
 // Governing Committee Pill with tooltip
@@ -287,44 +284,44 @@ function GoverningCommitteePill({ row }) {
     >
       <span
         ref={pillRef}
-        className="inline-block px-3 py-1 bg-berkeley-blue/10 text-berkeley-blue text-sm rounded-full font-medium cursor-pointer hover:bg-berkeley-blue/20 transition-colors whitespace-nowrap"
+        className={`pill pill-type ${committeeTypeClass(row['Linked Issue Summary'])} cursor-default`}
       >
         {row['Linked Issue Summary']}
       </span>
       {showTooltip && hasDetails && (
         <div
-          className="fixed z-[100] w-72 bg-white rounded-lg shadow-xl border border-gray-200 p-4 text-sm"
+          className="fixed z-[100] w-72 bg-surface rounded-control shadow-pop border border-line p-4 text-sm"
           style={{ top: tooltipPos.top, left: tooltipPos.left }}
         >
-          <div className="font-semibold text-berkeley-blue mb-3">{row['Linked Issue Summary']}</div>
+          <div className="font-semibold text-brand mb-3">{row['Linked Issue Summary']}</div>
 
           {row['Linked Issue Chair'] && (
             <div className="mb-2">
-              <div className="text-xs text-gray-500 uppercase tracking-wide">Chair</div>
-              <div className="font-medium text-gray-800">{row['Linked Issue Chair']}</div>
+              <div className="text-xs text-muted uppercase tracking-wide">Chair</div>
+              <div className="font-medium text-ink">{row['Linked Issue Chair']}</div>
               {row['Linked Issue Chair Affiliation'] && (
-                <div className="text-xs text-gray-500">{row['Linked Issue Chair Affiliation']}</div>
+                <div className="text-xs text-muted">{row['Linked Issue Chair Affiliation']}</div>
               )}
             </div>
           )}
 
           {row['Linked Issue Vice-Chair'] && (
             <div className="mb-2">
-              <div className="text-xs text-gray-500 uppercase tracking-wide">Vice-Chair</div>
-              <div className="font-medium text-gray-800">{row['Linked Issue Vice-Chair']}</div>
+              <div className="text-xs text-muted uppercase tracking-wide">Vice-Chair</div>
+              <div className="font-medium text-ink">{row['Linked Issue Vice-Chair']}</div>
               {row['Linked Issue Vice-Chair Affiliation'] && (
-                <div className="text-xs text-gray-500">{row['Linked Issue Vice-Chair Affiliation']}</div>
+                <div className="text-xs text-muted">{row['Linked Issue Vice-Chair Affiliation']}</div>
               )}
             </div>
           )}
 
           {row['Linked Issue Mailing List'] && (
-            <div className="mt-3 pt-2 border-t border-gray-100">
+            <div className="mt-3 pt-2 border-t border-line">
               <a
                 href={row['Linked Issue Mailing List']}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-berkeley-blue-light hover:text-california-gold"
+                className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:text-brand-hover hover:underline"
               >
                 <LinkIcon />
                 <span>Mailing List</span>
@@ -333,12 +330,12 @@ function GoverningCommitteePill({ row }) {
           )}
 
           {row['Linked Issue Participation & Voting Rights'] && (
-            <div className={row['Linked Issue Mailing List'] ? "mt-2" : "mt-3 pt-2 border-t border-gray-100"}>
+            <div className={row['Linked Issue Mailing List'] ? "mt-2" : "mt-3 pt-2 border-t border-line"}>
               <a
                 href={row['Linked Issue Participation & Voting Rights']}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-berkeley-blue-light hover:text-california-gold"
+                className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:text-brand-hover hover:underline"
               >
                 <LinkIcon />
                 <span>Participants & Voters</span>
@@ -409,7 +406,7 @@ function CopyButton({ row, showEmails }) {
   return (
     <button
       onClick={handleCopy}
-      className={`p-1.5 rounded transition-colors ${copied ? 'text-green-600 bg-green-50' : 'text-gray-400 hover:text-berkeley-blue hover:bg-gray-100'}`}
+      className={`icon-btn ${copied ? 'is-done' : ''}`}
       title="Copy row data"
     >
       {copied ? <CheckIcon /> : <CopyIcon />}
@@ -417,41 +414,38 @@ function CopyButton({ row, showEmails }) {
   )
 }
 
-// Parse CSV
+// Parse CSV (RFC 4180: quoted fields may contain commas, doubled quotes and newlines)
 function parseCSV(text) {
-  const lines = text.trim().split('\n')
-  const headers = parseCSVLine(lines[0])
-  const data = []
-
-  for (let i = 1; i < lines.length; i++) {
-    const values = parseCSVLine(lines[i])
-    const row = {}
-    headers.forEach((header, index) => {
-      row[header] = values[index] || ''
-    })
-    data.push(row)
+  const records = []
+  let row = []
+  let field = ''
+  let inQuotes = false
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++ } else inQuotes = false
+      } else field += c
+    } else if (c === '"') inQuotes = true
+    else if (c === ',') { row.push(field); field = '' }
+    else if (c === '\n') { row.push(field); records.push(row); row = []; field = '' }
+    else if (c !== '\r') field += c
   }
-  return data
+  if (field || row.length) { row.push(field); records.push(row) }
+  const nonEmpty = records.filter(r => r.length > 1 || r[0] !== '')
+  if (!nonEmpty.length) return []
+  const headers = nonEmpty[0].map(h => h.trim())
+  return nonEmpty.slice(1).map(values => {
+    const obj = {}
+    headers.forEach((h, idx) => { obj[h] = (values[idx] || '').trim() })
+    return obj
+  })
 }
 
-function parseCSVLine(line) {
-  const result = []
-  let current = ''
-  let inQuotes = false
-
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i]
-    if (char === '"') {
-      inQuotes = !inQuotes
-    } else if (char === ',' && !inQuotes) {
-      result.push(current.trim())
-      current = ''
-    } else {
-      current += char
-    }
-  }
-  result.push(current.trim())
-  return result
+// Number of distinct groups in a list of CSV rows (a group with two
+// governing committees has two rows).
+function countDistinct(rows) {
+  return new Set(rows.map(r => r['Issue'])).size
 }
 
 // Build mailto link
@@ -551,24 +545,27 @@ function buildMailtoLink(row) {
 // Header Component
 function Header() {
   return (
-    <header className="bg-gray-50 border-b-4 border-california-gold">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-        <div className="flex items-center gap-4">
-          <img
-            src="./riscv_logo.png"
-            alt="RISC-V Logo"
-            className="h-10 w-auto"
-            onError={(e) => { e.target.style.display = 'none' }}
-          />
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-berkeley-blue">
-              Tech Committees Explorer
-            </h1>
-            <p className="text-gray-600 text-sm hidden sm:block">
-              Explore all Technical Committees at RISC-V International
-            </p>
-          </div>
+    <header className="app-header">
+      <div className="brand-block">
+        <img
+          src="./riscv_logo.png"
+          alt="RISC-V"
+          className="title-logo"
+          onError={(e) => { e.target.style.display = 'none' }}
+        />
+        <span className="brand-divider" aria-hidden="true" />
+        <div className="min-w-0">
+          <h1 className="page-title">RISC-V Technical Committee Dashboard</h1>
+          <p className="app-subtitle">Every RISC-V technical group, its leadership, governing committee and history.</p>
         </div>
+      </div>
+      <div className="header-actions">
+        <a className="btn sm link-out" href="https://riscv.github.io/adm-spec-dashboard/" target="_blank" rel="noopener noreferrer" title="RISC-V Specification Dashboard">
+          <ExternalIcon />Spec Dashboard
+        </a>
+        <a className="btn sm link-out" href="https://riscv.github.io/adm-riscv-sde/" target="_blank" rel="noopener noreferrer" title="Specification Development Explorer">
+          <ExternalIcon />Development Explorer
+        </a>
       </div>
     </header>
   )
@@ -579,54 +576,60 @@ function TabButton({ active, onClick, icon, children }) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 px-4 sm:px-6 py-3 font-medium transition-all relative
-        ${active
-          ? 'text-california-gold'
-          : 'text-berkeley-blue-light hover:text-white'
-        }`}
+      className={`view-tab ${active ? 'is-active' : ''}`}
+      aria-current={active ? 'page' : undefined}
+      title={children}
     >
       {icon}
-      <span className="hidden sm:inline">{children}</span>
-      {active && (
-        <span className="absolute bottom-0 left-0 right-0 h-1 bg-california-gold rounded-t-full" />
-      )}
+      <span className="tab-text">{children}</span>
     </button>
   )
 }
 
 // Search Box Component
-function SearchBox({ value, onChange, onClear, resultCount }) {
+function SearchBox({ value, onChange, onClear }) {
   return (
-    <div className="relative max-w-xl mx-auto">
-      <div className="relative">
-        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400">
-          <SearchIcon />
+    <label className="search-shell">
+      <SearchIcon />
+      <input
+        type="search"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Search by issue, summary, chair, or committee..."
+        className="search-input"
+        aria-label="Search technical committees"
+      />
+      {value && (
+        <button type="button" onClick={onClear} className="clear-btn" title="Clear search" aria-label="Clear search">
+          <CloseIcon />
+        </button>
+      )}
+    </label>
+  )
+}
+
+// Dropdown menu: a firm toggle button with a panel of choices.
+function Menu({ label, badge, children }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
+  }, [open])
+  return (
+    <div className="menu-wrap" ref={ref}>
+      <button type="button" className={`btn sm firm menu-toggle ${badge ? 'has-badge' : ''}`} onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="menu">
+        {label}{badge ? <span className="menu-badge">{badge}</span> : null}<ChevronIcon />
+      </button>
+      {open && (
+        <div className="menu-panel" role="menu" onClick={() => setOpen(false)}>
+          {children}
         </div>
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="Search by issue, summary, chair, or committee..."
-          className="w-full pl-12 pr-12 py-3 bg-white border-2 border-gray-200 rounded-full
-                     focus:border-california-gold focus:ring-4 focus:ring-california-gold/20
-                     outline-none transition-all text-gray-800 placeholder-gray-400"
-        />
-        {value && (
-          <button
-            onClick={onClear}
-            className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600"
-          >
-            <CloseIcon />
-          </button>
-        )}
-      </div>
-      <div className="text-center mt-2 text-sm text-gray-500">
-        {resultCount !== null && (
-          <span>
-            Showing <span className="font-semibold text-berkeley-blue">{resultCount}</span> Technical Committee{resultCount !== 1 ? 's' : ''}
-          </span>
-        )}
-      </div>
+      )}
     </div>
   )
 }
@@ -644,23 +647,23 @@ function IssueRow({ row, showEmails }) {
   const hasResources = row['Charter'] || row['Confluence Space'] || row['Mailing List'] || row['Meeting Notes'] || row['Participation & Voting Rights']
 
   return (
-    <tr className="hover:bg-california-gold/5 transition-colors">
-      <td className="pl-10 pr-4 py-4">
+    <tr className="row-hover">
+      <td className="!pl-6 sm:!pl-8 !pr-4 !py-3 min-w-[260px]">
         <a
           href={row['Confluence Space'] || jiraUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="font-semibold text-berkeley-blue hover:text-california-gold transition-colors hover:underline"
+          className="font-semibold text-brand hover:text-brand-hover hover:underline"
         >
           {row['Summary']}
         </a>
-        <div className="flex items-center gap-2 mt-1">
+        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
           <StatusBadge status={row['Status']} />
           <YearsActiveBadge creationDate={row['Creation Date']} />
           <ActivityBadge level={row['Activity Level']} />
         </div>
         {hasResources && (
-          <div className="flex flex-wrap items-center gap-3 mt-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
             <ResourceLink href={row['Charter']} label="Charter" />
             <ResourceLink href={jiraUrl} label="Details" />
             <ResourceLink href={row['Mailing List']} label="Mailing List" />
@@ -669,88 +672,87 @@ function IssueRow({ row, showEmails }) {
           </div>
         )}
       </td>
-      <td className="px-4 py-4">
+      <td className="!py-3">
         {row['Chair'] && (
           <div>
-            <div className="font-medium text-gray-800">{row['Chair']}</div>
+            <div className="font-medium text-ink">{row['Chair']}</div>
             {row['Chair Affiliation'] && (
-              <div className="text-xs text-gray-500">{row['Chair Affiliation']}</div>
+              <div className="text-xs text-muted">{row['Chair Affiliation']}</div>
             )}
             {showEmails && row['Chair Email'] && (
-              <div className="text-xs text-gray-400">{row['Chair Email']}</div>
+              <div className="text-xs text-muted">{row['Chair Email']}</div>
             )}
           </div>
         )}
       </td>
-      <td className="px-4 py-4">
+      <td className="!py-3">
         {row['Vice-Chair'] && (
           <div>
-            <div className="font-medium text-gray-800">{row['Vice-Chair']}</div>
+            <div className="font-medium text-ink">{row['Vice-Chair']}</div>
             {row['Vice-Chair Affiliation'] && (
-              <div className="text-xs text-gray-500">{row['Vice-Chair Affiliation']}</div>
+              <div className="text-xs text-muted">{row['Vice-Chair Affiliation']}</div>
             )}
             {showEmails && row['Vice-Chair Email'] && (
-              <div className="text-xs text-gray-400">{row['Vice-Chair Email']}</div>
+              <div className="text-xs text-muted">{row['Vice-Chair Email']}</div>
             )}
           </div>
         )}
       </td>
-      <td className="px-4 py-4">
+      <td className="!py-3">
         <GoverningCommitteePill row={row} />
       </td>
       {showEmails && (
-        <td className="px-4 py-4">
+        <td className="!py-3">
           {row['Linked Issue Chair'] && (
             <div>
-              <div className="font-medium text-gray-800">{row['Linked Issue Chair']}</div>
+              <div className="font-medium text-ink">{row['Linked Issue Chair']}</div>
               {row['Linked Issue Chair Affiliation'] && (
-                <div className="text-xs text-gray-500">{row['Linked Issue Chair Affiliation']}</div>
+                <div className="text-xs text-muted">{row['Linked Issue Chair Affiliation']}</div>
               )}
               {row['Linked Issue Chair Email'] && (
-                <div className="text-xs text-gray-400">{row['Linked Issue Chair Email']}</div>
+                <div className="text-xs text-muted">{row['Linked Issue Chair Email']}</div>
               )}
             </div>
           )}
         </td>
       )}
       {showEmails && (
-        <td className="px-4 py-4">
+        <td className="!py-3">
           {row['Linked Issue Vice-Chair'] && (
             <div>
-              <div className="font-medium text-gray-800">{row['Linked Issue Vice-Chair']}</div>
+              <div className="font-medium text-ink">{row['Linked Issue Vice-Chair']}</div>
               {row['Linked Issue Vice-Chair Affiliation'] && (
-                <div className="text-xs text-gray-500">{row['Linked Issue Vice-Chair Affiliation']}</div>
+                <div className="text-xs text-muted">{row['Linked Issue Vice-Chair Affiliation']}</div>
               )}
               {row['Linked Issue Vice-Chair Email'] && (
-                <div className="text-xs text-gray-400">{row['Linked Issue Vice-Chair Email']}</div>
+                <div className="text-xs text-muted">{row['Linked Issue Vice-Chair Email']}</div>
               )}
             </div>
           )}
         </td>
       )}
       {showEmails && (
-        <td className="px-4 py-4">
+        <td className="!py-3">
           {mailto ? (
             <a
               href={mailto}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-california-gold text-berkeley-blue
-                         font-medium rounded-lg hover:bg-gold-light transition-colors shadow-sm"
+              className="btn sm link-out"
             >
               <MailIcon />
               <span className="hidden lg:inline">Email</span>
             </a>
           ) : (
-            <span className="text-gray-400 text-sm">No email</span>
+            <span className="text-muted text-sm">No email</span>
           )}
         </td>
       )}
-      <td className="px-2 py-4">
-        <div className="flex items-center gap-1">
+      <td className="!py-3 !px-3">
+        <div className="flex items-center gap-1.5">
           <CopyButton row={row} showEmails={showEmails} />
           {mailto && (
             <a
               href={mailto}
-              className="p-1.5 rounded transition-colors text-gray-400 hover:text-berkeley-blue hover:bg-gray-100"
+              className="icon-btn"
               title="Email chairs"
             >
               <SendIcon />
@@ -765,28 +767,26 @@ function IssueRow({ row, showEmails }) {
 // Group Header Component
 function GroupHeader({ title, count, showEmails }) {
   return (
-    <tr className="bg-gradient-to-r from-california-gold/20 to-california-gold/5">
-      <td colSpan={showEmails ? 8 : 5} className="px-4 py-3">
-        <span className="font-bold text-berkeley-blue">{title}</span>
-        <span className="ml-2 text-sm text-gray-600">({count} Technical Committee{count !== 1 ? 's' : ''})</span>
+    <tr className="group-row">
+      <td colSpan={showEmails ? 8 : 5}>
+        <span className={`legend-dot inline-block align-middle mr-2 ${committeeTypeClass(title)}`} aria-hidden="true" />
+        <span className="font-semibold text-brand">{title}</span>
+        <span className="ml-2 text-xs font-medium text-muted">({count} Technical Committee{count !== 1 ? 's' : ''})</span>
       </td>
     </tr>
   )
 }
 
 // Table View Component
-function TableView({ data, showEmails }) {
+function TableView({ data, showEmails, search }) {
   const [typeFilter, setTypeFilter] = useState(null)
 
   const filteredByType = useMemo(() => {
     if (!typeFilter) return data
     return data.filter(row => {
-      const summary = (row['Summary'] || '').trim()
       const status = row['Status']
-      if (typeFilter === 'TG') return summary.endsWith('TG')
-      if (typeFilter === 'SIG') return summary.endsWith('SIG')
-      if (typeFilter === 'HC') return summary.includes('(HC)')
-      if (typeFilter === 'IC') return summary.includes('(IC)')
+      const type = groupType(row)
+      if (['TG', 'SIG', 'HC', 'IC'].includes(typeFilter)) return type === typeFilter
       if (typeFilter === 'Proposing') return status === 'Proposing'
       if (typeFilter === 'Structuring') return status === 'Structuring and Chartering'
       return true
@@ -807,17 +807,6 @@ function TableView({ data, showEmails }) {
     return a.localeCompare(b)
   })
 
-  if (data.length === 0) {
-    return (
-      <div className="text-center py-16">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
-          <SearchIcon />
-        </div>
-        <p className="text-gray-500 text-lg">No results found for your search.</p>
-      </div>
-    )
-  }
-
   const filterButtons = [
     { key: null, label: 'All' },
     { key: 'TG', label: 'Task Groups' },
@@ -828,48 +817,70 @@ function TableView({ data, showEmails }) {
     { key: 'Structuring', label: 'Structuring & Chartering' },
   ]
 
+  const current = filterButtons.find(btn => btn.key === typeFilter) || filterButtons[0]
+
   return (
-    <div className="overflow-x-auto">
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 bg-gray-50">
-        <span className="text-sm font-medium text-gray-600 mr-1">Filter:</span>
-        {filterButtons.map(btn => (
-          <button
-            key={btn.label}
-            onClick={() => setTypeFilter(btn.key)}
-            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-              typeFilter === btn.key
-                ? 'bg-berkeley-blue text-white'
-                : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'
-            }`}
-          >
-            {btn.label}
-          </button>
-        ))}
+    <div>
+      <div className="toolbar">
+        <h2 className="card-title">Technical Committees</h2>
+        {search.resultCount !== null && (
+          <span className="count-chip strong" title={`Showing ${search.resultCount} Technical Committee${search.resultCount !== 1 ? 's' : ''}`}>
+            {search.resultCount}
+          </span>
+        )}
+        <SearchBox value={search.value} onChange={search.onChange} onClear={search.onClear} />
+        <Menu label={`Filter: ${current.label}`} badge={typeFilter ? 1 : 0}>
+          <div className="menu-label">Group type</div>
+          {filterButtons.slice(0, 5).map(btn => (
+            <button key={btn.label} type="button" role="menuitemradio" aria-checked={typeFilter === btn.key} className={`menu-item ${typeFilter === btn.key ? 'is-active' : ''}`} onClick={() => setTypeFilter(btn.key)}>
+              {btn.key && <span className={`legend-dot t-${btn.key.toLowerCase()}`} aria-hidden="true" />}
+              {btn.label}
+            </button>
+          ))}
+          <div className="menu-sep" />
+          <div className="menu-label">Status</div>
+          {filterButtons.slice(5).map(btn => (
+            <button key={btn.label} type="button" role="menuitemradio" aria-checked={typeFilter === btn.key} className={`menu-item ${typeFilter === btn.key ? 'is-active' : ''}`} onClick={() => setTypeFilter(btn.key)}>
+              {btn.label}
+            </button>
+          ))}
+        </Menu>
         {typeFilter && (
-          <span className="ml-2 text-xs text-gray-500">
-            {filteredByType.length} of {data.length} committees
+          <span className="text-xs text-muted">
+            {countDistinct(filteredByType)} of {countDistinct(data)} groups
           </span>
         )}
       </div>
-      <table className="w-full">
-        <thead className="bg-berkeley-blue text-white sticky top-0">
+      {data.length === 0 ? (
+        <div className="text-center py-16 text-muted">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-surface-muted border border-line mb-4">
+            <SearchIcon />
+          </div>
+          <p className="text-base">No results found for your search.</p>
+        </div>
+      ) : (
+      <div className="overflow-x-auto">
+      <table className="data-table">
+        <thead>
           <tr>
-            <th className="px-4 py-4 text-left font-semibold">Technical Committee</th>
-            <th className="px-4 py-4 text-left font-semibold">Chair</th>
-            <th className="px-4 py-4 text-left font-semibold">Vice-Chair</th>
-            <th className="px-4 py-4 text-left font-semibold">Governing Committee</th>
-            {showEmails && <th className="px-4 py-4 text-left font-semibold">Committee Chair</th>}
-            {showEmails && <th className="px-4 py-4 text-left font-semibold">Committee Vice-Chair</th>}
-            {showEmails && <th className="px-4 py-4 text-left font-semibold">Action</th>}
-            <th className="px-2 py-4 w-10"></th>
+            <th className="!pl-6 sm:!pl-8">Technical Committee</th>
+            <th>Chair</th>
+            <th>Vice-Chair</th>
+            <th>Governing Committee</th>
+            {showEmails && <th>Committee Chair</th>}
+            {showEmails && <th>Committee Vice-Chair</th>}
+            {showEmails && <th>Action</th>}
+            <th className="w-10"><span className="sr-only">Actions</span></th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-100">
+        <tbody>
           {sortedGroups.map(group => (
             <GroupedRows key={group} group={group} rows={grouped[group]} showEmails={showEmails} />
           ))}
         </tbody>
       </table>
+      </div>
+      )}
     </div>
   )
 }
@@ -900,12 +911,13 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
   }
   const zoomRef = useRef(null)
 
+  // Same values as the --type-* tokens in index.css (d3 needs literal colours).
   const colorScale = {
-    'TSC': '#003262',  // Berkeley Blue
-    'HC': '#3B7EA1',   // Berkeley Blue Light
-    'IC': '#3B7EA1',
-    'TG': '#34a853',
-    'SIG': '#FDB515',  // California Gold
+    'TSC': '#283272',
+    'IC': '#7c5cc4',
+    'HC': '#3b82b6',
+    'TG': '#1f9d74',
+    'SIG': '#d08a14',
   }
 
   const sizeScale = {
@@ -989,14 +1001,13 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
       const nodeId = `${issue}: ${summary}`
 
       if (!nodes.has(nodeId)) {
-        const isTG = summary.includes(' TG') || summary.toLowerCase().includes('task group')
-        const isSIG = summary.includes(' SIG') || summary.toLowerCase().includes('sig')
+        const t = groupType(row)
 
         const node = {
           id: nodeId,
           issueKey: issue,
           name: summary,
-          type: isTG ? 'TG' : (isSIG ? 'SIG' : 'TG'),
+          type: t === 'SIG' ? 'SIG' : 'TG',
           chair: row['Chair'] || '',
           chairEmail: row['Chair Email'] || '',
           viceChair: row['Vice-Chair'] || '',
@@ -1098,13 +1109,13 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
       selection
         .on('mouseover', (event, d) => {
           tooltip.html(`
-            <div class="font-bold text-berkeley-blue mb-2">${d.data ? d.data.name : d.name}</div>
-            ${(d.data || d).issueKey ? `<div class="text-sm"><span class="text-gray-500">Issue:</span> ${(d.data || d).issueKey}</div>` : ''}
-            <div class="text-sm"><span class="text-gray-500">Type:</span> <span class="font-medium">${(d.data || d).type}</span></div>
-            ${(d.data || d).chair ? `<div class="text-sm"><span class="text-gray-500">Chair:</span> ${(d.data || d).chair}</div>` : ''}
-            ${(d.data || d).chairEmail ? `<div class="text-xs text-gray-400">${(d.data || d).chairEmail}</div>` : ''}
-            ${(d.data || d).viceChair ? `<div class="text-sm mt-1"><span class="text-gray-500">Vice-Chair:</span> ${(d.data || d).viceChair}</div>` : ''}
-            ${(d.data || d).viceChairEmail ? `<div class="text-xs text-gray-400">${(d.data || d).viceChairEmail}</div>` : ''}
+            <div class="tt-title">${d.data ? d.data.name : d.name}</div>
+            ${(d.data || d).issueKey ? `<div><span class="tt-label">Issue:</span> ${(d.data || d).issueKey}</div>` : ''}
+            <div><span class="tt-label">Type:</span> <span class="font-semibold">${(d.data || d).type}</span></div>
+            ${(d.data || d).chair ? `<div><span class="tt-label">Chair:</span> ${(d.data || d).chair}</div>` : ''}
+            ${(d.data || d).chairEmail ? `<div class="tt-sub">${(d.data || d).chairEmail}</div>` : ''}
+            ${(d.data || d).viceChair ? `<div class="mt-1"><span class="tt-label">Vice-Chair:</span> ${(d.data || d).viceChair}</div>` : ''}
+            ${(d.data || d).viceChairEmail ? `<div class="tt-sub">${(d.data || d).viceChairEmail}</div>` : ''}
           `)
           tooltip.style('opacity', '1')
           tooltip.style('left', (event.pageX + 15) + 'px')
@@ -1135,8 +1146,8 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
         .data(links)
         .enter()
         .append('line')
-        .attr('stroke', '#dadce0')
-        .attr('stroke-width', 2)
+        .attr('stroke', '#cbd5e1')
+        .attr('stroke-width', 1.5)
 
       const node = g.append('g')
         .selectAll('.node')
@@ -1164,15 +1175,15 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
         .attr('r', d => sizeScale[d.type])
         .attr('fill', d => colorScale[d.type])
         .attr('stroke', '#fff')
-        .attr('stroke-width', 3)
-        .style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))')
+        .attr('stroke-width', 2.5)
 
       node.append('text')
         .attr('dy', d => sizeScale[d.type] + 16)
         .attr('text-anchor', 'middle')
-        .attr('fill', '#374151')
+        .attr('fill', '#334155')
         .attr('font-size', '11px')
         .attr('font-weight', '500')
+        .attr('font-family', 'Inter, system-ui, sans-serif')
         .text(d => d.name.length > 25 ? d.name.substring(0, 22) + '...' : d.name)
 
       attachTooltip(node)
@@ -1249,6 +1260,7 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
         .attr('fill', '#fff')
         .attr('font-size', '11px')
         .attr('font-weight', '600')
+        .attr('font-family', 'Inter, system-ui, sans-serif')
         .text(d => d.data.name.length > 30 ? d.data.name.substring(0, 27) + '...' : d.data.name)
 
       // Measure each text and insert a pill rect behind it
@@ -1269,8 +1281,7 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
           .attr('ry', pillHt / 2)
           .attr('fill', colorScale[d.data.type])
           .attr('stroke', '#fff')
-          .attr('stroke-width', 2)
-          .style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))')
+          .attr('stroke-width', 1.5)
       })
 
       // Draw smooth bezier connectors (attach to pill edges)
@@ -1288,7 +1299,7 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
           return `M${srcX},${srcY} C${midX},${srcY} ${midX},${tgtY} ${tgtX},${tgtY}`
         })
         .attr('fill', 'none')
-        .attr('stroke', '#c8cfd8')
+        .attr('stroke', '#cbd5e1')
         .attr('stroke-width', 1.5)
 
       attachTooltip(node)
@@ -1296,11 +1307,13 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
     } else if (viewMode === 'techorg') {
       // ── Technical Organization (governance structure diagram) ──
       const jiraBase = 'https://riscv.atlassian.net/browse/'
-      const orgBoxFill = '#f7f7f7'
-      const orgStroke = '#003262'  // Berkeley Blue
-      const orgText = '#333333'
+      // Design tokens: surface, brand, text, brand-soft hover.
+      const orgBoxFill = '#ffffff'
+      const orgStroke = '#283272'
+      const orgText = '#0f172a'
+      const orgHover = '#eef0f8'
       const orgFontSize = '13px'
-      const orgFontFamily = 'system-ui, -apple-system, sans-serif'
+      const orgFontFamily = 'Inter, system-ui, -apple-system, sans-serif'
 
       // Jira key mappings for clickable boxes
       const jiraKeys = {
@@ -1380,7 +1393,7 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
         if (clickUrl && !jiraKey) {
           group.on('click', () => window.open(clickUrl, '_blank'))
           group.on('mouseover', function() {
-            d3.select(this).select('rect').attr('fill', '#FDB51533')
+            d3.select(this).select('rect').attr('fill', orgHover)
           })
           group.on('mouseout', function() {
             d3.select(this).select('rect').attr('fill', orgBoxFill)
@@ -1389,21 +1402,21 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
         if (jiraKey) {
           group.on('click', () => window.open(clickUrl, '_blank'))
           group.on('mouseover', function(event) {
-            d3.select(this).select('rect').attr('fill', '#FDB51533')
+            d3.select(this).select('rect').attr('fill', orgHover)
             // Show tooltip with leadership info
-            let html = `<div class="font-bold text-berkeley-blue mb-1">${label}</div>`
-            html += `<div class="text-xs text-gray-500 mb-2">${jiraKey}</div>`
+            let html = `<div class="tt-title" style="margin-bottom:2px">${label}</div>`
+            html += `<div class="tt-sub mb-2">${jiraKey}</div>`
             if (info) {
               if (info.chair) {
-                html += `<div class="text-sm"><span class="text-gray-500">Chair:</span> ${info.chair}</div>`
-                if (info.chairAffiliation) html += `<div class="text-xs text-gray-400 ml-2">${info.chairAffiliation}</div>`
+                html += `<div><span class="tt-label">Chair:</span> ${info.chair}</div>`
+                if (info.chairAffiliation) html += `<div class="tt-sub ml-2">${info.chairAffiliation}</div>`
               }
               if (info.viceChair) {
-                html += `<div class="text-sm mt-1"><span class="text-gray-500">Vice-Chair:</span> ${info.viceChair}</div>`
-                if (info.viceChairAffiliation) html += `<div class="text-xs text-gray-400 ml-2">${info.viceChairAffiliation}</div>`
+                html += `<div class="mt-1"><span class="tt-label">Vice-Chair:</span> ${info.viceChair}</div>`
+                if (info.viceChairAffiliation) html += `<div class="tt-sub ml-2">${info.viceChairAffiliation}</div>`
               }
               if (!info.chair && !info.viceChair) {
-                html += `<div class="text-xs text-gray-400 italic">No leadership data available</div>`
+                html += `<div class="tt-sub italic">No leadership data available</div>`
               }
             }
             tooltip.html(html)
@@ -1426,7 +1439,7 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
           .attr('fill', orgBoxFill)
           .attr('stroke', orgStroke)
           .attr('stroke-width', 1)
-          .attr('rx', 3)
+          .attr('rx', 6)
 
         const fontSize = opts.fontSize || orgFontSize
         const fontWeight = opts.fontWeight || '600'
@@ -1454,7 +1467,7 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
               .attr('dominant-baseline', 'central')
               .attr('font-size', '9px')
               .attr('font-weight', '400')
-              .attr('fill', '#666')
+              .attr('fill', '#475569')
               .attr('font-family', orgFontFamily)
               .text(`Chair: ${info.chair}${info.chairAffiliation ? ' (' + info.chairAffiliation + ')' : ''}`)
           }
@@ -1466,7 +1479,7 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
               .attr('dominant-baseline', 'central')
               .attr('font-size', '9px')
               .attr('font-weight', '400')
-              .attr('fill', '#888')
+              .attr('fill', '#64748b')
               .attr('font-family', orgFontFamily)
               .text(`Vice-Chair: ${info.viceChair}${info.viceChairAffiliation ? ' (' + info.viceChairAffiliation + ')' : ''}`)
           }
@@ -1493,7 +1506,7 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
               .attr('dominant-baseline', 'central')
               .attr('font-size', '10px')
               .attr('font-weight', '400')
-              .attr('fill', '#666')
+              .attr('fill', '#475569')
               .attr('font-family', orgFontFamily)
               .text(`Chair: ${info.chair}${info.chairAffiliation ? ' (' + info.chairAffiliation + ')' : ''}`)
           }
@@ -1505,7 +1518,7 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
               .attr('dominant-baseline', 'central')
               .attr('font-size', '10px')
               .attr('font-weight', '400')
-              .attr('fill', '#888')
+              .attr('fill', '#64748b')
               .attr('font-family', orgFontFamily)
               .text(`Vice-Chair: ${info.viceChair}${info.viceChairAffiliation ? ' (' + info.viceChairAffiliation + ')' : ''}`)
           }
@@ -1560,14 +1573,14 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
       // BoD container (outermost, clickable)
       const bodGroup = g.append('g').attr('class', 'cursor-pointer')
       bodGroup.on('click', () => window.open('https://riscv.org/about/board/', '_blank'))
-      bodGroup.on('mouseover', function() { d3.select(this).select('rect').attr('fill', '#FDB51533') })
+      bodGroup.on('mouseover', function() { d3.select(this).select('rect').attr('fill', orgHover) })
       bodGroup.on('mouseout', function() { d3.select(this).select('rect').attr('fill', 'none') })
       bodGroup.append('rect')
         .attr('x', bodX).attr('y', bodY).attr('width', bodW).attr('height', bodH)
         .attr('fill', 'none')
         .attr('stroke', orgStroke)
         .attr('stroke-width', 1.5)
-        .attr('rx', 4)
+        .attr('rx', 10)
       bodGroup.append('text')
         .attr('x', bodX + bodW / 2).attr('y', bodY + 16)
         .attr('text-anchor', 'middle')
@@ -1581,14 +1594,14 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
       // TSC container (nested inside BoD)
       const tscGroup = g.append('g').attr('class', 'cursor-pointer')
       tscGroup.on('click', () => window.open('https://riscv.org/about/technical-steering-committee/', '_blank'))
-      tscGroup.on('mouseover', function() { d3.select(this).select('rect').attr('fill', '#FDB51522') })
-      tscGroup.on('mouseout', function() { d3.select(this).select('rect').attr('fill', '#fafafa') })
+      tscGroup.on('mouseover', function() { d3.select(this).select('rect').attr('fill', orgHover) })
+      tscGroup.on('mouseout', function() { d3.select(this).select('rect').attr('fill', '#f8fafc') })
       tscGroup.append('rect')
         .attr('x', tscX).attr('y', tscY).attr('width', tscW).attr('height', tscH)
-        .attr('fill', '#fafafa')
+        .attr('fill', '#f8fafc')
         .attr('stroke', orgStroke)
         .attr('stroke-width', 1.5)
-        .attr('rx', 4)
+        .attr('rx', 10)
 
       // TSC label + leadership
       const tscInfo = getInfo(jiraKeys.tsc)
@@ -1607,7 +1620,7 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
           .attr('x', tscX + tscW / 2).attr('y', tscY + 34)
           .attr('text-anchor', 'middle')
           .attr('font-size', '10px')
-          .attr('fill', '#666')
+          .attr('fill', '#475569')
           .attr('font-family', orgFontFamily)
           .text(`Chair: ${tscInfo.chair}${tscInfo.chairAffiliation ? ' (' + tscInfo.chairAffiliation + ')' : ''}${tscInfo.viceChair ? '  |  Vice-Chair: ' + tscInfo.viceChair + (tscInfo.viceChairAffiliation ? ' (' + tscInfo.viceChairAffiliation + ')' : '') : ''}`)
       }
@@ -1678,7 +1691,7 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
           .attr('y1', barY)
           .attr('x2', staffX)
           .attr('y2', barY)
-          .attr('stroke', '#ccc')
+          .attr('stroke', '#cbd5e1')
           .attr('stroke-width', 1)
           .attr('stroke-dasharray', '4,3')
       })
@@ -1710,71 +1723,46 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
   return (
     <div className="relative">
       {/* Controls */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        {/* View mode toggle */}
-        <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
-          <button
-            onClick={() => setViewMode('graph')}
-            className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-              viewMode === 'graph'
-                ? 'bg-berkeley-blue text-white'
-                : 'bg-white text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            Graph
-          </button>
-          <button
-            onClick={() => setViewMode('organogram')}
-            className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-              viewMode === 'organogram'
-                ? 'bg-berkeley-blue text-white'
-                : 'bg-white text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            Organogram
-          </button>
-          <button
-            onClick={() => setViewMode('techorg')}
-            className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-              viewMode === 'techorg'
-                ? 'bg-berkeley-blue text-white'
-                : 'bg-white text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            Tech Org
-          </button>
+      <div className="flex flex-wrap items-center gap-2.5 mb-4">
+        <div className="seg" role="group" aria-label="Hierarchy view">
+          <button type="button" onClick={() => setViewMode('graph')} className={viewMode === 'graph' ? 'is-active' : ''} aria-pressed={viewMode === 'graph'}>Graph</button>
+          <button type="button" onClick={() => setViewMode('organogram')} className={viewMode === 'organogram' ? 'is-active' : ''} aria-pressed={viewMode === 'organogram'}>Organogram</button>
+          <button type="button" onClick={() => setViewMode('techorg')} className={viewMode === 'techorg' ? 'is-active' : ''} aria-pressed={viewMode === 'techorg'}>Tech Org</button>
         </div>
 
-        <div className="w-px h-6 bg-gray-200" />
+        <span className="w-px h-6 bg-line hidden sm:block" aria-hidden="true" />
 
         <button
+          type="button"
           onClick={() => {
             if (svgRef.current && zoomRef.current) {
               svgRef.current.transition().call(zoomRef.current.scaleBy, 1.3)
             }
           }}
-          className="btn-secondary text-sm"
+          className="btn sm firm"
         >
           + Zoom In
         </button>
         <button
+          type="button"
           onClick={() => {
             if (svgRef.current && zoomRef.current) {
               svgRef.current.transition().call(zoomRef.current.scaleBy, 0.7)
             }
           }}
-          className="btn-secondary text-sm"
+          className="btn sm firm"
         >
           - Zoom Out
         </button>
         <button
+          type="button"
           onClick={() => {
             if (svgRef.current && zoomRef.current) {
               const resetTransform = zoomRef.current._fitTransform || d3.zoomIdentity
               svgRef.current.transition().call(zoomRef.current.transform, resetTransform)
             }
           }}
-          className="btn-secondary text-sm"
+          className="btn sm firm"
         >
           Reset View
         </button>
@@ -1782,1196 +1770,28 @@ function GraphView({ data, initialViewMode = 'graph', onViewModeChange }) {
         <div className="flex-1" />
 
         {/* Legend */}
-        <div className="flex flex-wrap gap-4 text-sm">
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-berkeley-blue" />
-            <span className="text-gray-600">TSC</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-berkeley-blue-light" />
-            <span className="text-gray-600">HC/IC</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-green-500" />
-            <span className="text-gray-600">TG</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-california-gold" />
-            <span className="text-gray-600">SIG</span>
-          </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-muted">
+          {[['tsc', 'TSC'], ['ic', 'IC'], ['hc', 'HC'], ['tg', 'TG'], ['sig', 'SIG']].map(([k, label]) => (
+            <span key={k} className={`inline-flex items-center gap-1.5 t-${k}`}>
+              <span className="legend-dot" aria-hidden="true" />
+              {label}
+            </span>
+          ))}
         </div>
       </div>
 
       {/* Graph Container */}
       <div
         ref={containerRef}
-        className="w-full h-[650px] bg-gradient-to-br from-gray-50 to-white rounded-xl border-2 border-gray-100"
+        className="canvas"
       />
 
       {/* Tooltip */}
       <div
         ref={tooltipRef}
-        className="fixed bg-white rounded-xl shadow-xl border border-gray-200 p-4 pointer-events-none
-                   opacity-0 transition-opacity z-50 max-w-xs"
+        className="tooltip-card opacity-0 transition-opacity"
         style={{ left: 0, top: 0 }}
       />
-    </div>
-  )
-}
-
-// Statistics View Component
-function StatisticsView({ data }) {
-  const [selectedCompany, setSelectedCompany] = useState(null)
-  const [companySearch, setCompanySearch] = useState('')
-
-  // Calculate positions per company with detailed member info
-  const companyPositions = useMemo(() => {
-    const companies = {}
-    data.forEach(row => {
-      // Chair affiliations
-      if (row['Chair Affiliation']) {
-        const company = row['Chair Affiliation']
-        if (!companies[company]) companies[company] = { chairs: [], viceChairs: [] }
-        companies[company].chairs.push({
-          name: row['Chair'] || 'Unknown',
-          email: row['Chair Email'] || '',
-          group: row['Summary'],
-          groupKey: row['Issue'],
-          governingCommittee: row['Linked Issue Summary'] || ''
-        })
-      }
-      // Vice-Chair affiliations
-      if (row['Vice-Chair Affiliation']) {
-        const company = row['Vice-Chair Affiliation']
-        if (!companies[company]) companies[company] = { chairs: [], viceChairs: [] }
-        companies[company].viceChairs.push({
-          name: row['Vice-Chair'] || 'Unknown',
-          email: row['Vice-Chair Email'] || '',
-          group: row['Summary'],
-          groupKey: row['Issue'],
-          governingCommittee: row['Linked Issue Summary'] || ''
-        })
-      }
-    })
-    return Object.entries(companies)
-      .map(([company, positions]) => ({
-        company,
-        chairs: positions.chairs,
-        viceChairs: positions.viceChairs,
-        chairCount: positions.chairs.length,
-        viceChairCount: positions.viceChairs.length,
-        total: positions.chairs.length + positions.viceChairs.length
-      }))
-      .sort((a, b) => b.total - a.total)
-  }, [data])
-
-  // Filter company positions based on search
-  const filteredCompanyPositions = useMemo(() => {
-    if (!companySearch.trim()) return companyPositions
-    const term = companySearch.toLowerCase()
-    return companyPositions.filter(item =>
-      item.company.toLowerCase().includes(term) ||
-      item.chairs.some(c => c.name.toLowerCase().includes(term) || c.group.toLowerCase().includes(term)) ||
-      item.viceChairs.some(c => c.name.toLowerCase().includes(term) || c.group.toLowerCase().includes(term))
-    )
-  }, [companyPositions, companySearch])
-
-  // Calculate TGs approaching 2 years
-  // Uses the most recent date between Recharter Approval Date and Group Creation Date.
-  // If Recharter Approval Date is empty, falls back to Group Creation Date.
-  // If both are empty, the item is excluded.
-  const tgsApproaching2Years = useMemo(() => {
-    const now = new Date()
-    const results = { oneMonth: [], twoMonths: [], threeMonths: [], sixMonths: [] }
-
-    data.forEach(row => {
-      const creationDateStr = row['Creation Date']
-      const recharterDateStr = row['Recharter Approval Date']
-
-      // Skip if both dates are empty
-      if (!creationDateStr && !recharterDateStr) return
-
-      // Parse both dates
-      const creationDate = creationDateStr ? new Date(creationDateStr) : null
-      const recharterDate = recharterDateStr ? new Date(recharterDateStr) : null
-
-      // Validate parsed dates
-      const validCreation = creationDate && !isNaN(creationDate.getTime()) ? creationDate : null
-      const validRecharter = recharterDate && !isNaN(recharterDate.getTime()) ? recharterDate : null
-
-      // Skip if no valid dates
-      if (!validCreation && !validRecharter) return
-
-      // Pick the most recent date between the two
-      let referenceDate
-      if (validRecharter && validCreation) {
-        referenceDate = validRecharter > validCreation ? validRecharter : validCreation
-      } else {
-        referenceDate = validCreation || validRecharter
-      }
-
-      // Calculate when they hit 2 years from the reference date
-      const twoYearDate = new Date(referenceDate)
-      twoYearDate.setFullYear(twoYearDate.getFullYear() + 2)
-
-      const diffMs = twoYearDate - now
-      const diffDays = diffMs / (1000 * 60 * 60 * 24)
-
-      if (diffDays > 0 && diffDays <= 30) {
-        results.oneMonth.push({ ...row, daysUntil: Math.ceil(diffDays), twoYearDate, referenceDate })
-      } else if (diffDays > 30 && diffDays <= 60) {
-        results.twoMonths.push({ ...row, daysUntil: Math.ceil(diffDays), twoYearDate, referenceDate })
-      } else if (diffDays > 60 && diffDays <= 90) {
-        results.threeMonths.push({ ...row, daysUntil: Math.ceil(diffDays), twoYearDate, referenceDate })
-      } else if (diffDays > 90 && diffDays <= 180) {
-        results.sixMonths.push({ ...row, daysUntil: Math.ceil(diffDays), twoYearDate, referenceDate })
-      }
-    })
-
-    return results
-  }, [data])
-
-  // Calculate upcoming elections
-  const upcomingElections = useMemo(() => {
-    const now = new Date()
-    const currentMonth = now.getMonth() + 1 // 1-12
-    const currentYear = now.getFullYear()
-    const results = { now: [], oneMonth: [], twoMonths: [], threeMonths: [] }
-
-    const monthNames = {
-      'January': 1, 'February': 2, 'March': 3, 'April': 4,
-      'May': 5, 'June': 6, 'July': 7, 'August': 8,
-      'September': 9, 'October': 10, 'November': 11, 'December': 12
-    }
-
-    const monthNamesReverse = Object.fromEntries(
-      Object.entries(monthNames).map(([k, v]) => [v, k])
-    )
-
-    data.forEach(row => {
-      const nextElectionMonth = row['Next Election Month']
-      const nextElectionYear = row['Next Election Year']
-      const lastElectionMonth = row['Last Election Month']
-      const lastElectionYear = row['Last Election Year']
-
-      // Check if election should be happening NOW
-      // Condition 1: Next election is current month or has passed
-      // Condition 2: Last election was more than 12 months ago
-      let shouldBeNow = false
-      let reason = ''
-
-      if (nextElectionMonth && nextElectionYear) {
-        const nextMonthNum = monthNames[nextElectionMonth] || parseInt(nextElectionMonth)
-        const nextYearNum = parseInt(nextElectionYear)
-
-        if (nextMonthNum && nextYearNum) {
-          const monthsUntilNext = (nextYearNum - currentYear) * 12 + (nextMonthNum - currentMonth)
-
-          // Election is this month or overdue
-          if (monthsUntilNext <= 0) {
-            shouldBeNow = true
-            reason = monthsUntilNext === 0 ? 'Election this month' : 'Election overdue'
-          } else if (monthsUntilNext === 1) {
-            results.oneMonth.push({ ...row, monthsUntil: monthsUntilNext, electionMonth: nextElectionMonth, electionYear: nextYearNum })
-          } else if (monthsUntilNext === 2) {
-            results.twoMonths.push({ ...row, monthsUntil: monthsUntilNext, electionMonth: nextElectionMonth, electionYear: nextYearNum })
-          } else if (monthsUntilNext === 3) {
-            results.threeMonths.push({ ...row, monthsUntil: monthsUntilNext, electionMonth: nextElectionMonth, electionYear: nextYearNum })
-          }
-        }
-      }
-
-      // Check if last election was more than 12 months ago
-      if (!shouldBeNow && lastElectionMonth && lastElectionYear) {
-        const lastMonthNum = monthNames[lastElectionMonth] || parseInt(lastElectionMonth)
-        const lastYearNum = parseInt(lastElectionYear)
-
-        if (lastMonthNum && lastYearNum) {
-          const monthsSinceLast = (currentYear - lastYearNum) * 12 + (currentMonth - lastMonthNum)
-
-          if (monthsSinceLast >= 12) {
-            shouldBeNow = true
-            reason = `Last election ${monthsSinceLast} months ago`
-          }
-        }
-      }
-
-      if (shouldBeNow) {
-        results.now.push({
-          ...row,
-          reason,
-          lastElectionMonth,
-          lastElectionYear,
-          nextElectionMonth,
-          nextElectionYear
-        })
-      }
-    })
-
-    return results
-  }, [data])
-
-  // Calculate longest running groups
-  const longestRunning = useMemo(() => {
-    const now = new Date()
-    const groupsWithAge = data
-      .filter(row => row['Creation Date'])
-      .map(row => {
-        const created = new Date(row['Creation Date'])
-        if (isNaN(created.getTime())) return null
-        const diffMs = now - created
-        const years = diffMs / (1000 * 60 * 60 * 24 * 365.25)
-        const summary = row['Summary'] || ''
-
-        // Determine type
-        let type = 'TG'
-        if (summary.includes(' SIG') || summary.toLowerCase().includes('special interest')) {
-          type = 'SIG'
-        } else if (summary.includes('(HC)') || summary.includes('(IC)') || summary.includes('Committee')) {
-          type = 'Committee'
-        }
-
-        return {
-          ...row,
-          years: Math.round(years * 10) / 10,
-          createdDate: created,
-          type
-        }
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.years - a.years)
-
-    return {
-      tgs: groupsWithAge.filter(g => g.type === 'TG').slice(0, 5),
-      sigs: groupsWithAge.filter(g => g.type === 'SIG').slice(0, 5),
-      committees: groupsWithAge.filter(g => g.type === 'Committee').slice(0, 5)
-    }
-  }, [data])
-
-  const maxPositions = Math.max(...filteredCompanyPositions.map(c => c.total), 1)
-
-  return (
-    <div className="space-y-8">
-      {/* Company Details Modal */}
-      {selectedCompany && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSelectedCompany(null)}>
-          <div
-            className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="bg-berkeley-blue text-white px-6 py-4 flex items-center justify-between">
-              <div>
-                <h3 className="text-xl font-bold">{selectedCompany.company}</h3>
-                <p className="text-berkeley-blue-light text-sm">
-                  {selectedCompany.chairCount} Chair · {selectedCompany.viceChairCount} Vice-Chair positions
-                </p>
-              </div>
-              <button
-                onClick={() => setSelectedCompany(null)}
-                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-              >
-                <CloseIcon />
-              </button>
-            </div>
-            <div className="p-6 overflow-auto max-h-[calc(80vh-80px)]">
-              {/* Chairs */}
-              {selectedCompany.chairs.length > 0 && (
-                <div className="mb-6">
-                  <h4 className="font-semibold text-berkeley-blue mb-3 flex items-center gap-2">
-                    <span className="w-3 h-3 bg-berkeley-blue rounded" />
-                    Chair Positions ({selectedCompany.chairs.length})
-                  </h4>
-                  <div className="space-y-2">
-                    {selectedCompany.chairs.map((pos, idx) => (
-                      <div key={`chair-${idx}`} className="bg-gray-50 rounded-lg p-3">
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <div className="font-medium text-gray-800">{pos.name}</div>
-                            <a
-                              href={`https://riscv.atlassian.net/browse/${pos.groupKey}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm text-berkeley-blue-light hover:text-california-gold"
-                            >
-                              {pos.group}
-                            </a>
-                            {pos.governingCommittee && (
-                              <div className="text-xs text-gray-500 mt-1">{pos.governingCommittee}</div>
-                            )}
-                          </div>
-                          <span className="text-xs bg-berkeley-blue text-white px-2 py-1 rounded">Chair</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Vice-Chairs */}
-              {selectedCompany.viceChairs.length > 0 && (
-                <div>
-                  <h4 className="font-semibold text-berkeley-blue mb-3 flex items-center gap-2">
-                    <span className="w-3 h-3 bg-california-gold rounded" />
-                    Vice-Chair Positions ({selectedCompany.viceChairs.length})
-                  </h4>
-                  <div className="space-y-2">
-                    {selectedCompany.viceChairs.map((pos, idx) => (
-                      <div key={`vc-${idx}`} className="bg-gray-50 rounded-lg p-3">
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <div className="font-medium text-gray-800">{pos.name}</div>
-                            <a
-                              href={`https://riscv.atlassian.net/browse/${pos.groupKey}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm text-berkeley-blue-light hover:text-california-gold"
-                            >
-                              {pos.group}
-                            </a>
-                            {pos.governingCommittee && (
-                              <div className="text-xs text-gray-500 mt-1">{pos.governingCommittee}</div>
-                            )}
-                          </div>
-                          <span className="text-xs bg-california-gold text-berkeley-blue px-2 py-1 rounded">Vice-Chair</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Company Positions */}
-      {import.meta.env.VITE_ENABLE_POSITIONS_BY_COMPANY === 'true' && (
-      <div>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
-          <div>
-            <h2 className="text-xl font-bold text-berkeley-blue">Positions by Company</h2>
-            <p className="text-gray-600 text-sm">Number of Chair and Vice-Chair positions held by each company. Click a bar or row to see details.</p>
-          </div>
-          <div className="relative w-full sm:w-64">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-              <SearchIcon />
-            </div>
-            <input
-              type="text"
-              value={companySearch}
-              onChange={(e) => setCompanySearch(e.target.value)}
-              placeholder="Search company, name, group..."
-              className="w-full pl-10 pr-8 py-2 bg-white border border-gray-300 rounded-lg
-                         focus:border-california-gold focus:ring-2 focus:ring-california-gold/20
-                         outline-none transition-all text-sm"
-            />
-            {companySearch && (
-              <button
-                onClick={() => setCompanySearch('')}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-              >
-                <CloseIcon />
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Chart */}
-          <div className="bg-gray-50 rounded-xl p-6 flex flex-col h-[500px]">
-            <div className="space-y-3 flex-1 overflow-y-auto overflow-x-hidden">
-              {filteredCompanyPositions.map((item, idx) => (
-                <div
-                  key={item.company}
-                  className="flex items-center gap-3 cursor-pointer hover:bg-gray-100 rounded-lg p-1 -m-1 transition-colors"
-                  onClick={() => setSelectedCompany(item)}
-                >
-                  <div className="w-32 text-sm text-gray-700 truncate" title={item.company}>
-                    {item.company}
-                  </div>
-                  <div className="flex-1 flex items-center gap-1">
-                    <div
-                      className="h-6 bg-berkeley-blue rounded-l hover:bg-berkeley-blue-light transition-colors"
-                      style={{ width: `${(item.chairCount / maxPositions) * 100}%`, minWidth: item.chairCount > 0 ? '4px' : '0' }}
-                      title={`Chair: ${item.chairCount}`}
-                    />
-                    <div
-                      className="h-6 bg-california-gold rounded-r hover:opacity-80 transition-opacity"
-                      style={{ width: `${(item.viceChairCount / maxPositions) * 100}%`, minWidth: item.viceChairCount > 0 ? '4px' : '0' }}
-                      title={`Vice-Chair: ${item.viceChairCount}`}
-                    />
-                  </div>
-                  <div className="w-12 text-right text-sm font-semibold text-gray-700">
-                    {item.total}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="flex items-center gap-6 mt-6 pt-4 border-t border-gray-200">
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-berkeley-blue rounded" />
-                <span className="text-sm text-gray-600">Chair</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-california-gold rounded" />
-                <span className="text-sm text-gray-600">Vice-Chair</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Table */}
-          <div className="bg-white rounded-xl border border-gray-200 flex flex-col h-[500px] overflow-hidden">
-            <div className="overflow-auto flex-1">
-            <table className="w-full text-sm">
-              <thead className="bg-berkeley-blue text-white sticky top-0">
-                <tr>
-                  <th className="px-3 py-2 text-left">Company</th>
-                  <th className="px-3 py-2 text-center">Chair</th>
-                  <th className="px-3 py-2 text-center">Vice-Chair</th>
-                  <th className="px-3 py-2 text-center">Total</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {filteredCompanyPositions.map((item, idx) => (
-                  <tr
-                    key={item.company}
-                    className={`cursor-pointer hover:bg-california-gold/20 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
-                    onClick={() => setSelectedCompany(item)}
-                  >
-                    <td className="px-3 py-2">{item.company}</td>
-                    <td className="px-3 py-2 text-center">{item.chairCount}</td>
-                    <td className="px-3 py-2 text-center">{item.viceChairCount}</td>
-                    <td className="px-3 py-2 text-center font-semibold">{item.total}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </div>
-          </div>
-        </div>
-      </div>
-      )}
-
-      {/* TGs Approaching 2 Years */}
-      <div>
-        <h2 className="text-xl font-bold text-berkeley-blue mb-4">Groups Approaching 2 Years</h2>
-        <p className="text-gray-600 text-sm mb-6">Technical Groups that will reach their 2-year milestone soon (based on most recent of Recharter Approval Date or Group Creation Date)</p>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* 1 Month */}
-          <div className="bg-red-50 rounded-xl p-4 border border-red-100">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center font-bold">
-                {tgsApproaching2Years.oneMonth.length}
-              </span>
-              <span className="font-semibold text-red-700">Within 1 Month</span>
-            </div>
-            <div className="space-y-2">
-              {tgsApproaching2Years.oneMonth.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No groups</p>
-              ) : (
-                tgsApproaching2Years.oneMonth.map(row => (
-                  <div key={row['Issue']} className="text-sm bg-white rounded p-2">
-                    <a
-                      href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-gray-800 hover:text-red-600"
-                    >
-                      {row['Summary']}
-                    </a>
-                    <div className="text-xs text-gray-500">{row.daysUntil} days</div>
-                    <div className="text-xs text-gray-400">
-                      {row['Recharter Approval Date'] && new Date(row['Recharter Approval Date']).getTime() === row.referenceDate.getTime()
-                        ? `Rechartered: ${row['Recharter Approval Date']}`
-                        : `Created: ${row['Creation Date']}`}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* 2 Months */}
-          <div className="bg-yellow-50 rounded-xl p-4 border border-yellow-100">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-8 h-8 bg-yellow-500 text-white rounded-full flex items-center justify-center font-bold">
-                {tgsApproaching2Years.twoMonths.length}
-              </span>
-              <span className="font-semibold text-yellow-700">Within 2 Months</span>
-            </div>
-            <div className="space-y-2">
-              {tgsApproaching2Years.twoMonths.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No groups</p>
-              ) : (
-                tgsApproaching2Years.twoMonths.map(row => (
-                  <div key={row['Issue']} className="text-sm bg-white rounded p-2">
-                    <a
-                      href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-gray-800 hover:text-yellow-600"
-                    >
-                      {row['Summary']}
-                    </a>
-                    <div className="text-xs text-gray-500">{row.daysUntil} days</div>
-                    <div className="text-xs text-gray-400">
-                      {row['Recharter Approval Date'] && new Date(row['Recharter Approval Date']).getTime() === row.referenceDate.getTime()
-                        ? `Rechartered: ${row['Recharter Approval Date']}`
-                        : `Created: ${row['Creation Date']}`}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* 3 Months */}
-          <div className="bg-green-50 rounded-xl p-4 border border-green-100">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-8 h-8 bg-green-500 text-white rounded-full flex items-center justify-center font-bold">
-                {tgsApproaching2Years.threeMonths.length}
-              </span>
-              <span className="font-semibold text-green-700">Within 3 Months</span>
-            </div>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {tgsApproaching2Years.threeMonths.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No groups</p>
-              ) : (
-                tgsApproaching2Years.threeMonths.map(row => (
-                  <div key={row['Issue']} className="text-sm bg-white rounded p-2">
-                    <a
-                      href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-gray-800 hover:text-green-600"
-                    >
-                      {row['Summary']}
-                    </a>
-                    <div className="text-xs text-gray-500">{row.daysUntil} days</div>
-                    <div className="text-xs text-gray-400">
-                      {row['Recharter Approval Date'] && new Date(row['Recharter Approval Date']).getTime() === row.referenceDate.getTime()
-                        ? `Rechartered: ${row['Recharter Approval Date']}`
-                        : `Created: ${row['Creation Date']}`}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* 6 Months */}
-          <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-8 h-8 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold">
-                {tgsApproaching2Years.sixMonths.length}
-              </span>
-              <span className="font-semibold text-blue-700">Within 6 Months</span>
-            </div>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {tgsApproaching2Years.sixMonths.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No groups</p>
-              ) : (
-                tgsApproaching2Years.sixMonths.map(row => (
-                  <div key={row['Issue']} className="text-sm bg-white rounded p-2">
-                    <a
-                      href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-gray-800 hover:text-blue-600"
-                    >
-                      {row['Summary']}
-                    </a>
-                    <div className="text-xs text-gray-500">{row.daysUntil} days</div>
-                    <div className="text-xs text-gray-400">
-                      {row['Recharter Approval Date'] && new Date(row['Recharter Approval Date']).getTime() === row.referenceDate.getTime()
-                        ? `Rechartered: ${row['Recharter Approval Date']}`
-                        : `Created: ${row['Creation Date']}`}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Upcoming Elections */}
-      <div>
-        <h2 className="text-xl font-bold text-berkeley-blue mb-4">Upcoming Elections</h2>
-        <p className="text-gray-600 text-sm mb-6">TGs and SIGs with scheduled elections. "Now" shows groups that should be running elections (overdue or last election was 12+ months ago).</p>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Now - Elections that should be happening */}
-          <div className="bg-purple-50 rounded-xl p-4 border border-purple-200">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-8 h-8 bg-purple-600 text-white rounded-full flex items-center justify-center font-bold animate-pulse">
-                {upcomingElections.now.length}
-              </span>
-              <span className="font-semibold text-purple-700">Now</span>
-            </div>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {upcomingElections.now.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No overdue elections</p>
-              ) : (
-                upcomingElections.now.map(row => (
-                  <div key={row['Issue']} className="text-sm bg-white rounded p-2 border-l-2 border-purple-400">
-                    <a
-                      href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-gray-800 hover:text-purple-600"
-                    >
-                      {row['Summary']}
-                    </a>
-                    <div className="text-xs text-purple-600 font-medium">{row.reason}</div>
-                    {row.lastElectionMonth && row.lastElectionYear && (
-                      <div className="text-xs text-gray-500">Last: {row.lastElectionMonth} {row.lastElectionYear}</div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* 1 Month */}
-          <div className="bg-red-50 rounded-xl p-4 border border-red-100">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center font-bold">
-                {upcomingElections.oneMonth.length}
-              </span>
-              <span className="font-semibold text-red-700">Next Month</span>
-            </div>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {upcomingElections.oneMonth.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No elections</p>
-              ) : (
-                upcomingElections.oneMonth.map(row => (
-                  <div key={row['Issue']} className="text-sm bg-white rounded p-2">
-                    <a
-                      href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-gray-800 hover:text-red-600"
-                    >
-                      {row['Summary']}
-                    </a>
-                    <div className="text-xs text-gray-500">{row.electionMonth} {row.electionYear}</div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* 2 Months */}
-          <div className="bg-yellow-50 rounded-xl p-4 border border-yellow-100">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-8 h-8 bg-yellow-500 text-white rounded-full flex items-center justify-center font-bold">
-                {upcomingElections.twoMonths.length}
-              </span>
-              <span className="font-semibold text-yellow-700">In 2 Months</span>
-            </div>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {upcomingElections.twoMonths.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No elections</p>
-              ) : (
-                upcomingElections.twoMonths.map(row => (
-                  <div key={row['Issue']} className="text-sm bg-white rounded p-2">
-                    <a
-                      href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-gray-800 hover:text-yellow-600"
-                    >
-                      {row['Summary']}
-                    </a>
-                    <div className="text-xs text-gray-500">{row.electionMonth} {row.electionYear}</div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* 3 Months */}
-          <div className="bg-green-50 rounded-xl p-4 border border-green-100">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-8 h-8 bg-green-500 text-white rounded-full flex items-center justify-center font-bold">
-                {upcomingElections.threeMonths.length}
-              </span>
-              <span className="font-semibold text-green-700">In 3 Months</span>
-            </div>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {upcomingElections.threeMonths.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No elections</p>
-              ) : (
-                upcomingElections.threeMonths.map(row => (
-                  <div key={row['Issue']} className="text-sm bg-white rounded p-2">
-                    <a
-                      href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-gray-800 hover:text-green-600"
-                    >
-                      {row['Summary']}
-                    </a>
-                    <div className="text-xs text-gray-500">{row.electionMonth} {row.electionYear}</div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Longest Running Technical Committees */}
-      <div>
-        <h2 className="text-xl font-bold text-berkeley-blue mb-4">Longest Running Technical Committees</h2>
-        <p className="text-gray-600 text-sm mb-6">Top 5 oldest groups by category based on creation date</p>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Task Groups */}
-          <div className="bg-gradient-to-br from-berkeley-blue/5 to-berkeley-blue/10 rounded-xl p-4 border border-berkeley-blue/20">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="w-8 h-8 bg-berkeley-blue text-white rounded-full flex items-center justify-center text-sm font-bold">TG</span>
-              <span className="font-semibold text-berkeley-blue">Task Groups</span>
-            </div>
-            <div className="space-y-2">
-              {longestRunning.tgs.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No data available</p>
-              ) : (
-                longestRunning.tgs.map((row, idx) => (
-                  <div key={row['Issue']} className="flex items-start gap-2 text-sm bg-white rounded p-2">
-                    <span className="w-5 h-5 bg-berkeley-blue/10 text-berkeley-blue rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">
-                      {idx + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <a
-                        href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium text-gray-800 hover:text-berkeley-blue block truncate"
-                        title={row['Summary']}
-                      >
-                        {row['Summary']}
-                      </a>
-                      <div className="text-xs text-berkeley-blue font-semibold">{row.years} years</div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* SIGs */}
-          <div className="bg-gradient-to-br from-california-gold/5 to-california-gold/10 rounded-xl p-4 border border-california-gold/30">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="w-8 h-8 bg-california-gold text-berkeley-blue rounded-full flex items-center justify-center text-sm font-bold">SIG</span>
-              <span className="font-semibold text-yellow-700">Special Interest Groups</span>
-            </div>
-            <div className="space-y-2">
-              {longestRunning.sigs.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No data available</p>
-              ) : (
-                longestRunning.sigs.map((row, idx) => (
-                  <div key={row['Issue']} className="flex items-start gap-2 text-sm bg-white rounded p-2">
-                    <span className="w-5 h-5 bg-california-gold/20 text-yellow-700 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">
-                      {idx + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <a
-                        href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium text-gray-800 hover:text-yellow-600 block truncate"
-                        title={row['Summary']}
-                      >
-                        {row['Summary']}
-                      </a>
-                      <div className="text-xs text-yellow-700 font-semibold">{row.years} years</div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Committees */}
-          <div className="bg-gradient-to-br from-berkeley-blue-light/5 to-berkeley-blue-light/10 rounded-xl p-4 border border-berkeley-blue-light/30">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="w-8 h-8 bg-berkeley-blue-light text-white rounded-full flex items-center justify-center text-sm font-bold">HC</span>
-              <span className="font-semibold text-berkeley-blue-light">Committees</span>
-            </div>
-            <div className="space-y-2">
-              {longestRunning.committees.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No data available</p>
-              ) : (
-                longestRunning.committees.map((row, idx) => (
-                  <div key={row['Issue']} className="flex items-start gap-2 text-sm bg-white rounded p-2">
-                    <span className="w-5 h-5 bg-berkeley-blue-light/20 text-berkeley-blue-light rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">
-                      {idx + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <a
-                        href={`https://riscv.atlassian.net/browse/${row['Issue']}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium text-gray-800 hover:text-berkeley-blue-light block truncate"
-                        title={row['Summary']}
-                      >
-                        {row['Summary']}
-                      </a>
-                      <div className="text-xs text-berkeley-blue-light font-semibold">{row.years} years</div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Summary Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="bg-berkeley-blue text-white rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold">{data.length}</div>
-          <div className="text-sm opacity-80">Total Groups</div>
-        </div>
-        <div className="bg-berkeley-blue-light text-white rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold">{companyPositions.length}</div>
-          <div className="text-sm opacity-80">Companies</div>
-        </div>
-        <div className="bg-california-gold text-berkeley-blue rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold">
-            {tgsApproaching2Years.oneMonth.length + tgsApproaching2Years.twoMonths.length + tgsApproaching2Years.threeMonths.length + tgsApproaching2Years.sixMonths.length}
-          </div>
-          <div className="text-sm opacity-80">Approaching 2 Years</div>
-        </div>
-        <div className="bg-purple-600 text-white rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold">{upcomingElections.now.length}</div>
-          <div className="text-sm opacity-80">Elections Now</div>
-        </div>
-        <div className="bg-green-500 text-white rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold">
-            {upcomingElections.oneMonth.length + upcomingElections.twoMonths.length + upcomingElections.threeMonths.length}
-          </div>
-          <div className="text-sm opacity-80">Upcoming Elections</div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function TrendView({ data }) {
-  const activeRows = useMemo(
-    () => data.filter(row => row['Status'] === 'Active'),
-    [data]
-  )
-
-  const activitySummary = useMemo(() => {
-    const categories = Object.keys(ACTIVITY_META).reduce((acc, key) => {
-      acc[key] = { ...ACTIVITY_META[key], count: 0 }
-      return acc
-    }, {})
-
-    activeRows.forEach(row => {
-      const meta = getActivityMeta(row['Activity Level'])
-      categories[meta.key].count += 1
-    })
-
-    const total = activeRows.length
-    const knownTotal = Math.max(total - categories.unknown.count, 0)
-    const weightedScore =
-      categories.veryActive.count * ACTIVITY_META.veryActive.score +
-      categories.active.count * ACTIVITY_META.active.score +
-      categories.low.count * ACTIVITY_META.low.score +
-      categories.inactive.count * ACTIVITY_META.inactive.score
-
-    return {
-      categories,
-      total,
-      healthScore: knownTotal > 0 ? Math.round(weightedScore / knownTotal) : 0,
-    }
-  }, [activeRows])
-
-  const globalStatus = useMemo(() => {
-    if (activitySummary.total === 0) {
-      return {
-        label: 'No Data',
-        description: 'No active committees with activity data were found.',
-        pillClass: 'bg-gray-100 text-gray-700 border-gray-200',
-        cardClass: 'from-gray-50 to-white border-gray-200',
-      }
-    }
-
-    const score = activitySummary.healthScore
-    if (score >= 80) {
-      return {
-        label: 'Healthy',
-        description: 'Most committees are Active or Very Active.',
-        pillClass: 'bg-green-100 text-green-700 border-green-200',
-        cardClass: 'from-green-50 to-emerald-50 border-green-200',
-      }
-    }
-    if (score >= 60) {
-      return {
-        label: 'Stable',
-        description: 'Activity is acceptable, but there are areas to monitor.',
-        pillClass: 'bg-blue-100 text-blue-700 border-blue-200',
-        cardClass: 'from-blue-50 to-cyan-50 border-blue-200',
-      }
-    }
-    if (score >= 40) {
-      return {
-        label: 'Watch',
-        description: 'A meaningful part of committees has low momentum.',
-        pillClass: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-        cardClass: 'from-yellow-50 to-amber-50 border-yellow-200',
-      }
-    }
-    return {
-      label: 'At Risk',
-      description: 'Low or inactive committees are dominating the portfolio.',
-      pillClass: 'bg-red-100 text-red-700 border-red-200',
-      cardClass: 'from-red-50 to-rose-50 border-red-200',
-    }
-  }, [activitySummary.healthScore, activitySummary.total])
-
-  const creationTrend = useMemo(() => {
-    const now = new Date()
-    const recentStart = new Date(now)
-    recentStart.setMonth(recentStart.getMonth() - 6)
-
-    const previousStart = new Date(now)
-    previousStart.setMonth(previousStart.getMonth() - 12)
-
-    let recent = 0
-    let previous = 0
-
-    activeRows.forEach(row => {
-      if (!row['Creation Date']) return
-      const created = new Date(row['Creation Date'])
-      if (isNaN(created.getTime())) return
-      if (created >= recentStart) {
-        recent += 1
-      } else if (created >= previousStart) {
-        previous += 1
-      }
-    })
-
-    const delta = recent - previous
-    const pctChange = previous > 0 ? Math.round((delta / previous) * 100) : null
-    const direction = delta > 0 ? 'up' : (delta < 0 ? 'down' : 'flat')
-
-    return { recent, previous, delta, pctChange, direction }
-  }, [activeRows])
-
-  const statusFlow = useMemo(() => {
-    const counts = {
-      active: 0,
-      proposing: 0,
-      structuring: 0,
-    }
-
-    data.forEach(row => {
-      if (row['Status'] === 'Active') counts.active += 1
-      if (row['Status'] === 'Proposing') counts.proposing += 1
-      if (row['Status'] === 'Structuring and Chartering') counts.structuring += 1
-    })
-
-    return counts
-  }, [data])
-
-  const watchList = useMemo(() => {
-    const now = new Date()
-    const currentMonth = now.getMonth() + 1
-    const currentYear = now.getFullYear()
-
-    return activeRows
-      .map(row => {
-        const meta = getActivityMeta(row['Activity Level'])
-        const reasons = []
-        let priority = 0
-
-        if (meta.key === 'inactive') {
-          reasons.push('Inactive activity level')
-          priority += 4
-        } else if (meta.key === 'low') {
-          reasons.push('Low activity level')
-          priority += 3
-        } else if (meta.key === 'unknown') {
-          reasons.push('Activity level missing')
-          priority += 2
-        }
-
-        if (!row['Chair'] || !row['Vice-Chair']) {
-          reasons.push('Leadership field incomplete')
-          priority += 1
-        }
-
-        const nextMonthRaw = row['Next Election Month']
-        const nextYearNum = parseInt(row['Next Election Year'], 10)
-        const nextMonthNum = MONTH_TO_NUMBER[nextMonthRaw] || parseInt(nextMonthRaw, 10)
-        if (nextMonthNum && nextYearNum) {
-          const monthsUntil = (nextYearNum - currentYear) * 12 + (nextMonthNum - currentMonth)
-          if (monthsUntil < 0) {
-            reasons.push('Election date is overdue')
-            priority += 2
-          } else if (monthsUntil === 0) {
-            reasons.push('Election due this month')
-            priority += 2
-          }
-        }
-
-        if (reasons.length === 0) return null
-        return { row, reasons: reasons.slice(0, 2), priority, meta }
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.priority - a.priority || (a.row['Summary'] || '').localeCompare(b.row['Summary'] || ''))
-      .slice(0, 10)
-  }, [activeRows])
-
-  const categoryKeys = ['veryActive', 'active', 'low', 'inactive']
-  if (activitySummary.categories.unknown.count > 0) {
-    categoryKeys.push('unknown')
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className={`rounded-xl border bg-gradient-to-br p-5 ${globalStatus.cardClass}`}>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-bold text-berkeley-blue">Global Status</h2>
-            <span className={`px-3 py-1 text-xs font-semibold border rounded-full ${globalStatus.pillClass}`}>
-              {globalStatus.label}
-            </span>
-          </div>
-          <div className="text-4xl font-bold text-berkeley-blue">{activitySummary.healthScore}</div>
-          <p className="text-xs text-gray-500 mt-1">Health score (0-100)</p>
-          <p className="text-sm text-gray-700 mt-3">{globalStatus.description}</p>
-        </div>
-
-        <div className="rounded-xl border border-gray-200 bg-white p-5">
-          <h2 className="text-lg font-bold text-berkeley-blue mb-3">Momentum Trend</h2>
-          <div className="text-2xl font-bold text-gray-800">
-            {creationTrend.direction === 'up' && (
-              <span className="text-green-700">
-                +{creationTrend.delta} more committee{creationTrend.delta !== 1 ? 's' : ''}
-              </span>
-            )}
-            {creationTrend.direction === 'down' && (
-              <span className="text-red-700">
-                {Math.abs(creationTrend.delta)} fewer committee{Math.abs(creationTrend.delta) !== 1 ? 's' : ''}
-              </span>
-            )}
-            {creationTrend.direction === 'flat' && (
-              <span className="text-gray-700">No net change</span>
-            )}
-          </div>
-          <p className="text-sm text-gray-600 mt-1">
-            New active committees in last 6 months: {creationTrend.recent}
-          </p>
-          <p className="text-xs text-gray-500 mt-2">
-            Previous 6 months: {creationTrend.previous}
-            {creationTrend.pctChange !== null && ` (${creationTrend.pctChange > 0 ? '+' : ''}${creationTrend.pctChange}%)`}
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-gray-200 bg-white p-5">
-          <h2 className="text-lg font-bold text-berkeley-blue mb-3">Pipeline</h2>
-          <div className="space-y-2 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-gray-600">Proposing</span>
-              <span className="font-semibold text-orange-700">{statusFlow.proposing}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-gray-600">Structuring & Chartering</span>
-              <span className="font-semibold text-blue-700">{statusFlow.structuring}</span>
-            </div>
-            <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-              <span className="text-gray-700 font-medium">Active</span>
-              <span className="font-bold text-green-700">{statusFlow.active}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-gray-200 bg-white p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-berkeley-blue">Activity Distribution</h2>
-          <span className="text-sm text-gray-600">
-            {activitySummary.total} Active Committee{activitySummary.total !== 1 ? 's' : ''}
-          </span>
-        </div>
-
-        <div className="h-3 w-full rounded-full bg-gray-100 overflow-hidden mb-4 flex">
-          {categoryKeys.map(key => {
-            const item = activitySummary.categories[key]
-            if (activitySummary.total === 0 || item.count === 0) return null
-            return (
-              <div
-                key={`bar-${key}`}
-                className={item.barClass}
-                style={{ width: `${(item.count / activitySummary.total) * 100}%` }}
-                title={`${item.label}: ${item.count}`}
-              />
-            )
-          })}
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-          {categoryKeys.map(key => {
-            const item = activitySummary.categories[key]
-            const pct = activitySummary.total > 0 ? Math.round((item.count / activitySummary.total) * 100) : 0
-            return (
-              <div key={key} className={`border rounded-lg p-3 ${item.panelClass}`}>
-                <div className="text-sm font-medium text-gray-700">{item.dot} {item.label}</div>
-                <div className={`text-2xl font-bold mt-1 ${item.textClass}`}>{item.count}</div>
-                <div className="text-xs text-gray-500">{pct}% of active committees</div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-gray-200 bg-white p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-berkeley-blue">Committees To Pay Attention</h2>
-          <span className="text-sm text-gray-600">{watchList.length} flagged</span>
-        </div>
-
-        {watchList.length === 0 ? (
-          <p className="text-sm text-gray-500 italic">No immediate attention items based on current signals.</p>
-        ) : (
-          <div className="space-y-3">
-            {watchList.map(item => {
-              const levelLabel = item.row['Activity Level']
-                ? formatActivityLevel(item.row['Activity Level'], true)
-                : `${ACTIVITY_META.unknown.dot} ${ACTIVITY_META.unknown.label}`
-              return (
-                <div key={item.row['Issue']} className={`rounded-lg border p-3 ${item.meta.panelClass}`}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <a
-                        href={buildJiraUrl(item.row['Issue'])}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-semibold text-gray-800 hover:text-berkeley-blue"
-                      >
-                        {item.row['Summary']}
-                      </a>
-                      <div className="text-xs text-gray-500">{item.row['Issue']}</div>
-                      <div className="text-xs text-gray-600 mt-1">{item.reasons.join(' • ')}</div>
-                    </div>
-                    <span className={`px-2 py-1 text-xs font-medium rounded ${item.meta.badgeClass}`}>
-                      {levelLabel}
-                    </span>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
     </div>
   )
 }
@@ -2979,12 +1799,8 @@ function TrendView({ data }) {
 // Footer Component
 function Footer() {
   return (
-    <footer className="bg-berkeley-blue-dark text-white py-6 mt-auto">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-        <p className="text-berkeley-blue-light text-sm">
-          Tech Committees Explorer
-        </p>
-      </div>
+    <footer className="app-footer">
+      RISC-V Technical Committee Dashboard. Data from the RVG and RVC projects in RISC-V Jira.
     </footer>
   )
 }
@@ -2998,8 +1814,8 @@ function App() {
     const search = window.location.search
     if (search.includes('committees')) return 'table'
     if (search.includes('hierarchy') || search.includes('organogram') || search.includes('techorg')) return 'graph'
-    if (search.includes('statistics')) return 'stats'
-    if (search.includes('trend')) return 'trend'
+    if (SHOW_ANALYTICS && search.includes('statistics')) return 'stats'
+    if (SHOW_ANALYTICS && (search.includes('trend') || search.includes('history'))) return 'trend' // ?history is the tab's current name
     return 'table'
   })
   const [graphViewMode, setGraphViewMode] = useState(() => {
@@ -3016,8 +1832,8 @@ function App() {
       else if (search.includes('organogram')) { setActiveTab('graph'); setGraphViewMode('organogram') }
       else if (search.includes('techorg')) { setActiveTab('graph'); setGraphViewMode('techorg') }
       else if (search.includes('hierarchy')) { setActiveTab('graph'); setGraphViewMode('graph') }
-      else if (search.includes('statistics')) setActiveTab('stats')
-      else if (search.includes('trend')) setActiveTab('trend')
+      else if (SHOW_ANALYTICS && search.includes('statistics')) setActiveTab('stats')
+      else if (SHOW_ANALYTICS && (search.includes('trend') || search.includes('history'))) setActiveTab('trend')
       else setActiveTab('table')
     }
     window.addEventListener('popstate', handlePopState)
@@ -3034,7 +1850,7 @@ function App() {
         else queryParam = '?hierarchy'
         break;
       case 'stats': queryParam = '?statistics'; break;
-      case 'trend': queryParam = '?trend'; break;
+      case 'trend': queryParam = '?history'; break;
       default: queryParam = '?committees';
     }
 
@@ -3085,27 +1901,28 @@ function App() {
   }, [searchTerm, data])
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
+    <div className="min-h-screen flex flex-col">
+      <div className="page flex-1">
       <Header />
 
       {/* Tab Navigation */}
-      <div className="bg-berkeley-blue-dark">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex gap-1">
-            <TabButton
-              active={activeTab === 'table'}
-              onClick={() => setActiveTab('table')}
-              icon={<TableIcon />}
-            >
-              Technical Committees
-            </TabButton>
-            <TabButton
-              active={activeTab === 'graph'}
-              onClick={() => setActiveTab('graph')}
-              icon={<GraphIcon />}
-            >
-              Hierarchy Explorer
-            </TabButton>
+      <nav className="view-tabs" aria-label="Views">
+        <TabButton
+          active={activeTab === 'table'}
+          onClick={() => setActiveTab('table')}
+          icon={<TableIcon />}
+        >
+          Technical Committees
+        </TabButton>
+        <TabButton
+          active={activeTab === 'graph'}
+          onClick={() => setActiveTab('graph')}
+          icon={<GraphIcon />}
+        >
+          Hierarchy Explorer
+        </TabButton>
+        {SHOW_ANALYTICS && (
+          <>
             <TabButton
               active={activeTab === 'stats'}
               onClick={() => setActiveTab('stats')}
@@ -3118,64 +1935,54 @@ function App() {
               onClick={() => setActiveTab('trend')}
               icon={<TrendIcon />}
             >
-              Trend
+              History
             </TabButton>
-          </div>
-        </div>
-      </div>
-
-      {/* Search - only show in table view */}
-      {activeTab === 'table' && (
-        <div className="bg-white shadow-sm border-b border-gray-200 py-6">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <SearchBox
-              value={searchTerm}
-              onChange={setSearchTerm}
-              onClear={() => setSearchTerm('')}
-              resultCount={loading ? null : filteredData.filter(row => ['Active', 'Proposing', 'Structuring and Chartering'].includes(row['Status'])).length}
-            />
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </nav>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6">
+      <main className="w-full">
         {loading ? (
           <div className="card p-12 text-center">
-            <div className="inline-block animate-spin rounded-full h-10 w-10 border-4 border-california-gold border-t-transparent mb-4" />
-            <p className="text-gray-500">Loading data...</p>
+            <div className="inline-block animate-spin rounded-full h-9 w-9 border-[3px] border-brand border-t-transparent mb-4" />
+            <p className="text-muted">Loading data...</p>
           </div>
         ) : error ? (
           <div className="card p-12 text-center">
-            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <div className="w-14 h-14 bg-bad-bg text-bad rounded-full flex items-center justify-center mx-auto mb-4">
               <CloseIcon />
             </div>
-            <p className="text-red-600 font-medium">Error loading data</p>
-            <p className="text-gray-500 text-sm mt-2">{error}</p>
+            <p className="text-bad font-semibold">Error loading data</p>
+            <p className="text-muted text-sm mt-2">{error}</p>
           </div>
         ) : (
-          <div className="card">
+          <>
             {activeTab === 'table' && (
-              <TableView data={filteredData.filter(row => ['Active', 'Proposing', 'Structuring and Chartering'].includes(row['Status']))} showEmails={SHOW_EMAILS} />
+              <div className="card">
+                <TableView
+                  data={filteredData.filter(row => ['Active', 'Proposing', 'Structuring and Chartering'].includes(row['Status']))}
+                  showEmails={SHOW_EMAILS}
+                  search={{
+                    value: searchTerm,
+                    onChange: setSearchTerm,
+                    onClear: () => setSearchTerm(''),
+                    resultCount: countDistinct(filteredData.filter(row => ['Active', 'Proposing', 'Structuring and Chartering'].includes(row['Status']))),
+                  }}
+                />
+              </div>
             )}
             {activeTab === 'graph' && (
-              <div className="p-6">
+              <div className="card p-4 sm:p-5">
                 <GraphView data={data.filter(row => row['Status'] === 'Active')} initialViewMode={graphViewMode} onViewModeChange={setGraphViewMode} />
               </div>
             )}
-            {activeTab === 'stats' && (
-              <div className="p-6">
-                <StatisticsView data={data.filter(row => row['Status'] === 'Active')} />
-              </div>
-            )}
-            {activeTab === 'trend' && (
-              <div className="p-6">
-                <TrendView data={data.filter(row => ['Active', 'Proposing', 'Structuring and Chartering'].includes(row['Status']))} />
-              </div>
-            )}
-          </div>
+            {activeTab === 'stats' && <StatisticsView rows={data} />}
+            {activeTab === 'trend' && <HistoryView rows={data} />}
+          </>
         )}
       </main>
+      </div>
 
       <Footer />
     </div>
