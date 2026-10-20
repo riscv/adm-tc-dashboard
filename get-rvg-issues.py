@@ -236,10 +236,13 @@ def search_issues(
     jql: str,
     fields: List[str],
     verbose: bool = False,
+    strict: bool = False,
 ) -> List[Dict]:
     """
     Search for issues using JQL with pagination (v3 API with POST).
-    Returns list of issue data.
+    Returns list of issue data. With strict=True an HTTP error exits the run
+    instead of returning a partial list: a silent gap would publish wrong
+    counts, and a failed run keeps the last good site live.
     """
     auth = HTTPBasicAuth(JIRA_USER_EMAIL, JIRA_API_TOKEN)
     url = f"{JIRA_SERVER_URL}/rest/api/3/search/jql"
@@ -284,6 +287,8 @@ def search_issues(
                         print(f"  {msg}")
             except ValueError:
                 print(f"  {resp.text[:500]}")
+            if strict:
+                sys.exit(1)
             return all_issues
 
         data = resp.json()
@@ -819,6 +824,12 @@ GROUPED_CSV_FIELDS = [
     "Data Fetched At",
 ]
 
+HISTORY_ONLY_BLANK_FIELDS = [
+    "Chair", "Chair Email", "Chair Affiliation", "Is Acting Chair",
+    "Vice-Chair", "Vice-Chair Email", "Vice-Chair Affiliation", "Is Acting Vice-Chair",
+    "Chair Start Date", "Chair End Date", "Vice-Chair Start Date", "Vice-Chair End Date",
+]
+
 
 def _grouped_row(issue: Dict, li: Optional[Dict], fetched_at: str) -> Dict[str, str]:
     """One grouped-CSV row for an issue and (optionally) one governing issue."""
@@ -880,7 +891,7 @@ def fetch_open_elections(sess: requests.Session, verbose: bool = False) -> Dict[
     (call for candidates) that is not in a Done status category.
     """
     out: Dict[str, List[str]] = {}
-    for raw in search_issues(sess, OPEN_ELECTIONS_JQL, ["status", "issuelinks"], verbose):
+    for raw in search_issues(sess, OPEN_ELECTIONS_JQL, ["status", "issuelinks"], verbose, strict=True):
         status = (raw.get("fields", {}).get("status") or {}).get("name") or ""
         for link in raw.get("fields", {}).get("issuelinks", []):
             other = link.get("inwardIssue") or link.get("outwardIssue") or {}
@@ -914,10 +925,16 @@ def save_grouped_csv(results: List[Dict], filepath: str, history_issues: Optiona
     # Sort by Linked Issue Summary to group them together
     rows.sort(key=lambda x: (x["Linked Issue Summary"] or "zzz", x["Issue"]))
 
+    # History-only rows (Archived/Cancelled/TODO groups) keep no people data:
+    # the file is public, and the History view only needs keys, names,
+    # status, type and dates.
     seen = {r["Issue"] for r in rows}
     for issue in history_issues or []:
         if issue["key"] not in seen:
-            rows.append(_grouped_row(issue, None, fetched_at))
+            row = _grouped_row(issue, None, fetched_at)
+            for field in HISTORY_ONLY_BLANK_FIELDS:
+                row[field] = ""
+            rows.append(row)
 
     if rows:
         with open(filepath, "w", newline="", encoding="utf-8") as f:
@@ -1065,7 +1082,7 @@ Environment variables:
                 r["issue"]["open_elections"] = open_elections.get(r["issue"]["key"], "")
             if not args.no_history:
                 print("Fetching status history (changelog) for every RVG group...")
-                for raw in search_issues(sess, HISTORY_JQL, ISSUE_FIELDS, args.verbose):
+                for raw in search_issues(sess, HISTORY_JQL, ISSUE_FIELDS, args.verbose, strict=True):
                     history_issues.append(process_issue(raw))
                 for issue in [r["issue"] for r in results] + history_issues:
                     issue["status_history"] = fetch_status_history(

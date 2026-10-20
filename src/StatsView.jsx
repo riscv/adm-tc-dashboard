@@ -105,7 +105,7 @@ function ElectionCell({ g }) {
 }
 
 // Accent colour of each Activity Level tile (same meaning as the table chips).
-const ACTIVITY_TONE = { veryActive: 'tone-green', active: 'tone-blue', low: 'tone-amber', inactive: 'tone-red', unknown: 'tone-gray' }
+const ACTIVITY_TONE = { veryActive: 'tone-green', active: 'tone-blue', low: 'tone-amber', stalled: 'tone-red', unknown: 'tone-gray' }
 
 const STATE_LABEL = {
   vacant: 'Vacant',

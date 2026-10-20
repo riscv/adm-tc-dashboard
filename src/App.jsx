@@ -1813,7 +1813,7 @@ function App() {
     if (search.includes('committees')) return 'table'
     if (search.includes('hierarchy') || search.includes('organogram') || search.includes('techorg')) return 'graph'
     if (search.includes('statistics')) return 'stats'
-    if (search.includes('trend')) return 'trend'
+    if (search.includes('trend') || search.includes('history')) return 'trend' // ?history is the tab's current name
     return 'table'
   })
   const [graphViewMode, setGraphViewMode] = useState(() => {
@@ -1831,7 +1831,7 @@ function App() {
       else if (search.includes('techorg')) { setActiveTab('graph'); setGraphViewMode('techorg') }
       else if (search.includes('hierarchy')) { setActiveTab('graph'); setGraphViewMode('graph') }
       else if (search.includes('statistics')) setActiveTab('stats')
-      else if (search.includes('trend')) setActiveTab('trend')
+      else if (search.includes('trend') || search.includes('history')) setActiveTab('trend')
       else setActiveTab('table')
     }
     window.addEventListener('popstate', handlePopState)
@@ -1848,7 +1848,7 @@ function App() {
         else queryParam = '?hierarchy'
         break;
       case 'stats': queryParam = '?statistics'; break;
-      case 'trend': queryParam = '?trend'; break;
+      case 'trend': queryParam = '?history'; break;
       default: queryParam = '?committees';
     }
 
