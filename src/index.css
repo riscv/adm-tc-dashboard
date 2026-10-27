@@ -168,21 +168,12 @@
   .data-table tbody tr.row-striped td { background: #f8f9fb; }
 
   /* Chair / Vice-Chair term timeline */
-  .term { position: relative; display: flex; gap: 22px; margin-top: 8px; }
-  .term-stop { position: relative; display: flex; flex-direction: column; align-items: center; width: 78px; }
-  .term-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--brand); }
-  .term-stop.is-end .term-label { color: #7c3aed; }
-  .term-date { margin-top: 1px; font-size: 12px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .term-dot { position: relative; z-index: 1; width: 9px; height: 9px; margin-top: 5px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 0 3px rgba(40, 50, 114, .18); }
-  .term-stop.is-end .term-dot { background: #7c3aed; box-shadow: 0 0 0 3px rgba(124, 58, 237, .2); }
-  .term-stop:first-child::after { content: ''; position: absolute; left: 50%; bottom: 4px; width: calc(100% + 22px); border-top: 2px dashed #8b5cf6; }
-  .term-stop.is-late .term-label, .term-stop.is-late .term-date { color: var(--bad); }
-  .term-stop.is-late .term-dot { background: var(--bad); box-shadow: 0 0 0 3px rgba(220, 38, 38, .2); }
-  .data-table tbody tr.row-hover td { border-bottom-color: var(--border-strong); }
-  .data-table tbody tr.row-hover:hover td { background: var(--brand-soft); }
-  .data-table td .text-muted { color: #475569; }
-  .resource-links a { color: #475569; }
-  .resource-links a:hover { color: var(--brand); }
+  .term { display: flex; align-items: center; gap: 4px; margin-top: 3px; font-size: 11px; font-weight: 500; color: #475569; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .term-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 0 2px rgba(40, 50, 114, .15); }
+  .term-dot.is-end { background: #7c3aed; box-shadow: 0 0 0 2px rgba(124, 58, 237, .18); }
+  .term-line { flex: none; width: 12px; border-top: 1.5px dashed #8b5cf6; }
+  .term.is-late .term-end { color: var(--bad); font-weight: 600; }
+  .term.is-late .term-dot.is-end { background: var(--bad); box-shadow: 0 0 0 2px rgba(220, 38, 38, .18); }
 
   @keyframes pill-blink { 50% { opacity: .25; } }
   .pill-blink { animation: pill-blink 1s step-end infinite; background: var(--bad-bg); }
