@@ -165,11 +165,11 @@
   .group-row td { background: #dfe4f5; border-top: 1px solid #c3cbe8; border-bottom: 1px solid #c3cbe8; box-shadow: inset 4px 0 0 0 var(--brand); padding: 10px 16px; }
 
   .proposals { margin-top: 28px; border-top: 3px solid var(--warn); scroll-margin-top: 16px; }
-  .proposals-header { display: flex; align-items: center; gap: 12px; padding: 16px 20px; background: var(--warn-bg); border-bottom: 1px solid #fcd9a8; }
+  .proposals-header { display: flex; align-items: center; gap: 12px; padding: 16px 20px; background: #fde68a; border-bottom: 2px solid #f59e0b; }
   .proposals-icon { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: #fff; border: 1.5px solid var(--warn); font-size: 17px; flex: none; }
   .proposals-title { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; font-weight: 700; color: #92400e; }
   .proposals-count { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 999px; background: var(--warn); color: #fff; font-size: 12px; font-weight: 700; }
-  .proposals-sub { margin: 2px 0 0; font-size: 12.5px; color: #b45309; }
+  .proposals-sub { margin: 2px 0 0; font-size: 12.5px; color: #92400e; }
   .proposals-jump { margin-left: auto; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--warn); background: var(--warn-bg); color: #92400e; font-size: 12px; font-weight: 600; white-space: nowrap; }
   .proposals-jump:hover { background: var(--warn); color: #fff; text-decoration: none; }
 
