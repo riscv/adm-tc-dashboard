@@ -295,17 +295,15 @@ function TermDates({ start, end }) {
   const today = new Date().toISOString().slice(0, 10)
   const expired = end && end < today
   return (
-    <div className="term" title={expired ? `Term ended on ${end}` : 'Term'}>
-      <div className="term-stop">
-        <span className="term-label">Start</span>
-        <span className="term-date">{start || '—'}</span>
-        <span className="term-dot" />
-      </div>
-      <div className={`term-stop is-end${expired ? ' is-late' : ''}`}>
-        <span className="term-label">{expired ? 'Ended' : 'End'}</span>
-        <span className="term-date">{end || '—'}</span>
-        <span className="term-dot" />
-      </div>
+    <div
+      className={`term${expired ? ' is-late' : ''}`}
+      title={`Term start ${start || '—'} → ${expired ? 'ended' : 'end'} ${end || '—'}`}
+    >
+      <span className="term-dot" />
+      <span>{start || '—'}</span>
+      <span className="term-line" />
+      <span className="term-dot is-end" />
+      <span className="term-end">{end || '—'}</span>
     </div>
   )
 }
