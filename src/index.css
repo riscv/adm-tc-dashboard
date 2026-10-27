@@ -162,10 +162,22 @@
   .data-table tbody tr:last-child td { border-bottom: 0; }
   .data-table .num { text-align: right; font-variant-numeric: tabular-nums; }
   .table-frame { border: 1px solid var(--border); border-radius: var(--radius-control); overflow-x: auto; }
-  .group-row td { background: var(--brand-soft); border-bottom: 1px solid var(--border-strong); box-shadow: inset 3px 0 0 0 var(--brand); padding: 10px 16px; }
+  .group-row td { background: #dfe4f5; border-top: 1px solid #c3cbe8; border-bottom: 1px solid #c3cbe8; box-shadow: inset 4px 0 0 0 var(--brand); padding: 10px 16px; }
 
   /* Committees table contrast */
-  .data-table tbody tr.row-striped td { background: #f5f7fb; }
+  .data-table tbody tr.row-striped td { background: #f8f9fb; }
+
+  /* Chair / Vice-Chair term timeline */
+  .term { position: relative; display: flex; gap: 22px; margin-top: 8px; }
+  .term-stop { position: relative; display: flex; flex-direction: column; align-items: center; width: 78px; }
+  .term-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--brand); }
+  .term-stop.is-end .term-label { color: #7c3aed; }
+  .term-date { margin-top: 1px; font-size: 12px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .term-dot { position: relative; z-index: 1; width: 9px; height: 9px; margin-top: 5px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 0 3px rgba(40, 50, 114, .18); }
+  .term-stop.is-end .term-dot { background: #7c3aed; box-shadow: 0 0 0 3px rgba(124, 58, 237, .2); }
+  .term-stop:first-child::after { content: ''; position: absolute; left: 50%; bottom: 4px; width: calc(100% + 22px); border-top: 2px dashed #8b5cf6; }
+  .term-stop.is-late .term-label, .term-stop.is-late .term-date { color: var(--bad); }
+  .term-stop.is-late .term-dot { background: var(--bad); box-shadow: 0 0 0 3px rgba(220, 38, 38, .2); }
   .data-table tbody tr.row-hover td { border-bottom-color: var(--border-strong); }
   .data-table tbody tr.row-hover:hover td { background: var(--brand-soft); }
   .data-table td .text-muted { color: #475569; }
