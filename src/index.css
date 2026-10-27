@@ -167,13 +167,14 @@
   /* Committees table contrast */
   .data-table tbody tr.row-striped td { background: #f8f9fb; }
 
-  /* Chair / Vice-Chair term timeline */
-  .term { display: flex; align-items: center; gap: 4px; margin-top: 3px; font-size: 11px; font-weight: 500; color: #475569; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .term-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 0 2px rgba(40, 50, 114, .15); }
-  .term-dot.is-end { background: #7c3aed; box-shadow: 0 0 0 2px rgba(124, 58, 237, .18); }
-  .term-line { flex: none; width: 12px; border-top: 1.5px dashed #8b5cf6; }
+  /* Chair / Vice-Chair term: dates plus elapsed-term track */
+  .term { margin-top: 4px; max-width: 168px; }
+  .term-dates { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: #475569; white-space: nowrap; }
+  .term-arrow { color: #a5b0c8; }
+  .term-track { height: 3px; margin-top: 4px; border-radius: 999px; background: #e3e7f1; overflow: hidden; }
+  .term-fill { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--brand), #7c3aed); }
   .term.is-late .term-end { color: var(--bad); font-weight: 600; }
-  .term.is-late .term-dot.is-end { background: var(--bad); box-shadow: 0 0 0 2px rgba(220, 38, 38, .18); }
+  .term.is-late .term-fill { background: var(--bad); }
 
   @keyframes pill-blink { 50% { opacity: .25; } }
   .pill-blink { animation: pill-blink 1s step-end infinite; background: var(--bad-bg); }
