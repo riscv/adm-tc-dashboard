@@ -907,8 +907,12 @@ function TableView({ data, showEmails, search }) {
     })
   }, [data, typeFilter])
 
+  // Proposals (no approval yet) are listed in their own table below
+  const proposals = filteredByType.filter(row => row['Status'] === 'Proposing')
+  const committees = filteredByType.filter(row => row['Status'] !== 'Proposing')
+
   // Group by Linked Issue Summary
-  const grouped = filteredByType.reduce((acc, row) => {
+  const grouped = committees.reduce((acc, row) => {
     const group = row['Linked Issue Summary'] || 'No Governing Committee'
     if (!acc[group]) acc[group] = []
     acc[group].push(row)
@@ -997,6 +1001,8 @@ function TableView({ data, showEmails, search }) {
           <p className="text-base">No results found for your search.</p>
         </div>
       ) : (
+      <>
+      {committees.length > 0 && (
       <div className="overflow-x-auto">
       <table className="data-table">
         <thead>
@@ -1021,6 +1027,101 @@ function TableView({ data, showEmails, search }) {
       </table>
       </div>
       )}
+      <ProposalsTable rows={proposals} />
+      </>
+      )}
+    </div>
+  )
+}
+
+// Proposals awaiting approval (status Proposing), one row per issue
+function ProposalsTable({ rows }) {
+  if (rows.length === 0) return null
+  const byIssue = new Map()
+  rows.forEach(row => {
+    if (!byIssue.has(row['Issue'])) byIssue.set(row['Issue'], [])
+    byIssue.get(row['Issue']).push(row)
+  })
+  const issues = [...byIssue.values()].sort((a, b) =>
+    (a[0]['Summary'] || '').localeCompare(b[0]['Summary'] || '')
+  )
+  return (
+    <div className="proposals">
+      <div className="toolbar">
+        <h2 className="card-title">Proposals Awaiting Approval</h2>
+        <span className="count-chip strong">{issues.length}</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th className="!pl-6 sm:!pl-8">Proposal</th>
+              <th>Proposed Since</th>
+              <th>Proposed Chair</th>
+              <th>Proposed Vice-Chair</th>
+              <th>Governing Committee</th>
+            </tr>
+          </thead>
+          <tbody>
+            {issues.map((issueRows, idx) => {
+              const row = issueRows[0]
+              const since = row['Lifecycle Starting Date'] || row['Creation Date']
+              const years = calculateYearsActive(since)
+              return (
+                <tr key={row['Issue']} className={`row-hover${idx % 2 === 1 ? ' row-striped' : ''}`}>
+                  <td className="!pl-6 sm:!pl-8 !pr-4 !py-3 min-w-[260px]">
+                    <a
+                      href={buildJiraUrl(row['Issue'])}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-semibold text-brand hover:text-brand-hover hover:underline"
+                    >
+                      {row['Summary']}
+                    </a>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 resource-links">
+                      <ResourceLink href={row['PoW']} label="PoW" showWhenMissing />
+                      <ResourceLink href={row['Confluence Space']} label="Confluence" />
+                      <ResourceLink href={row['Charter']} label="Charter" />
+                      <ResourceLink href={row['Mailing List']} label="Mailing List" />
+                    </div>
+                  </td>
+                  <td className="!py-3 whitespace-nowrap">
+                    {since ? (
+                      <>
+                        <div className="font-medium text-ink">{since}</div>
+                        {years !== null && (
+                          <div className="text-xs text-muted">{years < 1 ? `${Math.round(years * 12)} months` : `${years} years`}</div>
+                        )}
+                      </>
+                    ) : <span className="text-muted">—</span>}
+                  </td>
+                  <td className="!py-3">
+                    {row['Chair'] && (
+                      <div>
+                        <div className="font-medium text-ink">{row['Chair']}</div>
+                        {row['Chair Affiliation'] && <div className="text-xs text-muted">{row['Chair Affiliation']}</div>}
+                      </div>
+                    )}
+                  </td>
+                  <td className="!py-3">
+                    {row['Vice-Chair'] && (
+                      <div>
+                        <div className="font-medium text-ink">{row['Vice-Chair']}</div>
+                        {row['Vice-Chair Affiliation'] && <div className="text-xs text-muted">{row['Vice-Chair Affiliation']}</div>}
+                      </div>
+                    )}
+                  </td>
+                  <td className="!py-3">
+                    <div className="flex flex-col items-start gap-1.5">
+                      {issueRows.map(r => <GoverningCommitteePill key={r['Linked Issue Summary']} row={r} />)}
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
