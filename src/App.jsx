@@ -294,16 +294,25 @@ function TermDates({ start, end }) {
   if (!start && !end) return null
   const today = new Date().toISOString().slice(0, 10)
   const expired = end && end < today
+  // Share of the term already elapsed, for the progress track
+  let pct = null
+  if (start && end && end > start) {
+    const span = new Date(end) - new Date(start)
+    pct = Math.round(Math.min(1, Math.max(0, (new Date(today) - new Date(start)) / span)) * 100)
+  }
+  const title = expired
+    ? `Term ended on ${end}`
+    : `Term ${start || '—'} → ${end || '—'}${pct !== null ? ` (${pct}% elapsed)` : ''}`
   return (
-    <div
-      className={`term${expired ? ' is-late' : ''}`}
-      title={`Term start ${start || '—'} → ${expired ? 'ended' : 'end'} ${end || '—'}`}
-    >
-      <span className="term-dot" />
-      <span>{start || '—'}</span>
-      <span className="term-line" />
-      <span className="term-dot is-end" />
-      <span className="term-end">{end || '—'}</span>
+    <div className={`term${expired ? ' is-late' : ''}`} title={title}>
+      <div className="term-dates">
+        <span>{start || '—'}</span>
+        <span className="term-arrow">→</span>
+        <span className="term-end">{end || '—'}</span>
+      </div>
+      {pct !== null && (
+        <div className="term-track"><span className="term-fill" style={{ width: `${pct}%` }} /></div>
+      )}
     </div>
   )
 }
