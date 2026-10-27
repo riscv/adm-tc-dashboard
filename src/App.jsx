@@ -992,6 +992,11 @@ function TableView({ data, showEmails, search }) {
             {countDistinct(filteredByType)} of {countDistinct(data)} groups
           </span>
         )}
+        {proposals.length > 0 && committees.length > 0 && (
+          <a href="#proposals" className="proposals-jump">
+            {countDistinct(proposals)} proposal{countDistinct(proposals) !== 1 ? 's' : ''} awaiting approval ↓
+          </a>
+        )}
       </div>
       {data.length === 0 ? (
         <div className="text-center py-16 text-muted">
@@ -1046,10 +1051,16 @@ function ProposalsTable({ rows }) {
     (a[0]['Summary'] || '').localeCompare(b[0]['Summary'] || '')
   )
   return (
-    <div className="proposals">
-      <div className="toolbar">
-        <h2 className="card-title">Proposals Awaiting Approval</h2>
-        <span className="count-chip strong">{issues.length}</span>
+    <section id="proposals" className="proposals">
+      <div className="proposals-header">
+        <span className="proposals-icon" aria-hidden="true">⏳</span>
+        <div>
+          <h2 className="proposals-title">
+            Proposals Awaiting Approval
+            <span className="proposals-count">{issues.length}</span>
+          </h2>
+          <p className="proposals-sub">Groups in Proposing status — not yet approved</p>
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="data-table">
@@ -1122,7 +1133,7 @@ function ProposalsTable({ rows }) {
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
   )
 }
 
