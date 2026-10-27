@@ -136,8 +136,8 @@
   .menu-sep { height: 1px; margin: 4px 6px; background: var(--border); }
 
   /* Pills */
-  .pill { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface); color: #334155; font-size: 11.5px; font-weight: 600; line-height: 18px; white-space: nowrap; }
-  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface); color: #334155; font-size: 10.5px; font-weight: 600; line-height: 16px; white-space: nowrap; }
+  .pill .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex: none; }
   .pill-ok { border-color: var(--ok); color: var(--ok); }
   .pill-warn { border-color: var(--warn); color: var(--warn); }
   .pill-yellow { border-color: var(--yellow); color: var(--yellow); }
@@ -163,6 +163,8 @@
   .data-table .num { text-align: right; font-variant-numeric: tabular-nums; }
   .table-frame { border: 1px solid var(--border); border-radius: var(--radius-control); overflow-x: auto; }
   .group-row td { background: #dfe4f5; border-top: 1px solid #c3cbe8; border-bottom: 1px solid #c3cbe8; box-shadow: inset 4px 0 0 0 var(--brand); padding: 10px 16px; }
+
+  .proposals { border-top: 1px solid var(--border-strong); margin-top: 8px; }
 
   /* Committees table contrast */
   .data-table tbody tr.row-striped td { background: #f8f9fb; }
