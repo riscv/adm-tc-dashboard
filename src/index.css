@@ -28,6 +28,7 @@
   --ok-bg: #ecfdf5;
   --warn: #d97706;
   --warn-bg: #fffbeb;
+  --yellow: #ca8a04;
   --bad: #dc2626;
   --bad-bg: #fef2f2;
   --info: #2563eb;
@@ -139,6 +140,7 @@
   .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
   .pill-ok { border-color: var(--ok); color: var(--ok); }
   .pill-warn { border-color: var(--warn); color: var(--warn); }
+  .pill-yellow { border-color: var(--yellow); color: var(--yellow); }
   .pill-bad { border-color: var(--bad); color: var(--bad); }
   .pill-info { border-color: var(--info); color: var(--info); }
   .pill-neutral { border-color: var(--border-strong); color: var(--neutral); }

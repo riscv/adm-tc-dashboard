@@ -106,8 +106,20 @@ const CheckIcon = () => (
 )
 
 // Resource link component
-function ResourceLink({ href, label, icon }) {
-  if (!href) return null
+function ResourceLink({ href, label, icon, showWhenMissing = false }) {
+  if (!href) {
+    if (!showWhenMissing) return null
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-xs font-medium text-gray-300 cursor-not-allowed"
+        title={`${label} not available`}
+        aria-disabled="true"
+      >
+        {icon || <LinkIcon />}
+        <span>{label}</span>
+      </span>
+    )
+  }
   return (
     <a
       href={href}
@@ -152,14 +164,14 @@ const ACTIVITY_META = {
     label: 'Active',
     dot: '🔵',
     score: 70,
-    badgeClass: 'pill-info',
+    badgeClass: 'pill-ok',
   },
   low: {
     key: 'low',
     label: 'Low',
     dot: '🟡',
     score: 35,
-    badgeClass: 'pill-warn',
+    badgeClass: 'pill-yellow',
   },
   inactive: {
     key: 'inactive',
@@ -392,6 +404,7 @@ function CopyButton({ row, showEmails }) {
     if (row['Mailing List']) text += `  Mailing List: ${row['Mailing List']}\n`
     if (row['Meeting Notes']) text += `  Meeting Notes: ${row['Meeting Notes']}\n`
     if (row['Participation & Voting Rights']) text += `  Participants & Voters: ${row['Participation & Voting Rights']}\n`
+    if (row['PoW']) text += `  PoW: ${row['PoW']}\n`
     text += `  Jira: https://riscv.atlassian.net/browse/${row['Issue']}\n`
 
     try {
@@ -647,33 +660,32 @@ function IssueRow({ row, showEmails }) {
   const mailto = buildMailtoLink(row)
   const jiraUrl = buildJiraUrl(row['Issue'])
 
-  const hasResources = row['Charter'] || row['Confluence Space'] || row['Mailing List'] || row['Meeting Notes'] || row['Participation & Voting Rights']
-
   return (
     <tr className="row-hover">
       <td className="!pl-6 sm:!pl-8 !pr-4 !py-3 min-w-[260px]">
-        <a
-          href={row['Confluence Space'] || jiraUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-semibold text-brand hover:text-brand-hover hover:underline"
-        >
-          {row['Summary']}
-        </a>
-        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-          <StatusBadge status={row['Status']} />
-          <YearsActiveBadge creationDate={row['Creation Date']} />
-          <ActivityBadge level={row['Activity Level']} />
-        </div>
-        {hasResources && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
-            <ResourceLink href={row['Charter']} label="Charter" />
-            <ResourceLink href={jiraUrl} label="Details" />
-            <ResourceLink href={row['Mailing List']} label="Mailing List" />
-            <ResourceLink href={row['Meeting Notes']} label="Meeting Notes" />
-            <ResourceLink href={row['Participation & Voting Rights']} label="Participants & Voters" />
+        <div className="flex items-start justify-between gap-3">
+          <a
+            href={jiraUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-brand hover:text-brand-hover hover:underline"
+          >
+            {row['Summary']}
+          </a>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <StatusBadge status={row['Status']} />
+            <YearsActiveBadge creationDate={row['Creation Date']} />
+            <ActivityBadge level={row['Activity Level']} />
           </div>
-        )}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
+          <ResourceLink href={row['Charter']} label="Charter" />
+          <ResourceLink href={row['Confluence Space']} label="Confluence" />
+          <ResourceLink href={row['PoW']} label="PoW" showWhenMissing />
+          <ResourceLink href={row['Mailing List']} label="Mailing List" />
+          <ResourceLink href={row['Meeting Notes']} label="Meeting Notes" />
+          <ResourceLink href={row['Participation & Voting Rights']} label="Participants & Voters" />
+        </div>
       </td>
       <td className="!py-3">
         {row['Chair'] && (

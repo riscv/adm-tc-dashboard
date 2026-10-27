@@ -74,6 +74,7 @@ CF_IS_ACTING_CHAIR = "customfield_10094"  # Is Acting Chair?
 CF_IS_ACTING_VICE_CHAIR = "customfield_10102"  # Is Acting Vice-Chair?
 CF_RECHARTER_APPROVAL_DATE = "customfield_10643"  # Recharter Approval Date
 CF_PARTICIPATION_VOTING = "customfield_10443"  # Participation & Voting Rights
+CF_PROPOSAL_OF_WORK = "customfield_10178"  # Proposal of Work
 CF_GROUP_TYPE = "customfield_10085"  # Group Type (IC/HC/TG/SIG/GC)
 CF_LIFECYCLE_START_DATE = "customfield_10106"  # Group Lifecycle Starting Date
 CF_CHAIR_START_DATE = "customfield_10097"  # Chair Start Date (term start)
@@ -128,6 +129,7 @@ ISSUE_FIELDS = [
     CF_IS_ACTING_VICE_CHAIR,
     CF_RECHARTER_APPROVAL_DATE,
     CF_PARTICIPATION_VOTING,
+    CF_PROPOSAL_OF_WORK,
     CF_GROUP_TYPE,
     CF_LIFECYCLE_START_DATE,
     CF_CHAIR_START_DATE,
@@ -340,14 +342,21 @@ def get_issue_details(
         return None
 
 
+def normalize_atlassian_url(url: Optional[str]) -> Optional[str]:
+    """Rewrite links on the legacy lf-riscv.atlassian.net site to riscv.atlassian.net."""
+    if not url:
+        return url
+    return url.replace("://lf-riscv.atlassian.net", "://riscv.atlassian.net")
+
+
 def extract_url_field(field_value: Any) -> Optional[str]:
     """Extract URL from a Jira URL field (can be string or dict with href)."""
     if not field_value:
         return None
     if isinstance(field_value, str):
-        return field_value
+        return normalize_atlassian_url(field_value)
     if isinstance(field_value, dict):
-        return field_value.get("href") or field_value.get("url")
+        return normalize_atlassian_url(field_value.get("href") or field_value.get("url"))
     return None
 
 
@@ -444,6 +453,9 @@ def process_issue(issue_data: Dict) -> Dict:
     # Extract participation & voting rights
     participation_voting = extract_url_field(fields.get(CF_PARTICIPATION_VOTING))
 
+    # Extract Proposal of Work page
+    pow_page = extract_url_field(fields.get(CF_PROPOSAL_OF_WORK))
+
     return {
         "key": issue_key,
         "group_type": extract_dropdown_value(fields.get(CF_GROUP_TYPE)),
@@ -482,6 +494,7 @@ def process_issue(issue_data: Dict) -> Dict:
         "is_acting_vice_chair": is_acting_vice_chair,
         "recharter_approval_date": recharter_approval_date,
         "participation_voting": participation_voting,
+        "pow_page": pow_page,
     }
 
 
@@ -785,6 +798,7 @@ GROUPED_CSV_FIELDS = [
     "Activity Level",
     "Meeting Notes",
     "Participation & Voting Rights",
+    "PoW",
     "Next Election Month",
     "Next Election Year",
     "Last Election Month",
@@ -846,6 +860,7 @@ def _grouped_row(issue: Dict, li: Optional[Dict], fetched_at: str) -> Dict[str, 
         "Activity Level": issue.get("activity_level") or "",
         "Meeting Notes": issue.get("meeting_notes") or "",
         "Participation & Voting Rights": issue.get("participation_voting") or "",
+        "PoW": issue.get("pow_page") or "",
         "Next Election Month": issue.get("next_election_month") or "",
         "Next Election Year": issue.get("next_election_year") or "",
         "Last Election Month": issue.get("last_election_month") or "",
