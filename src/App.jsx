@@ -994,7 +994,7 @@ function TableView({ data, showEmails, search }) {
         )}
         {proposals.length > 0 && committees.length > 0 && (
           <a href="#proposals" className="proposals-jump">
-            {countDistinct(proposals)} proposal{countDistinct(proposals) !== 1 ? 's' : ''} awaiting approval ↓
+            {countDistinct(proposals)} new committee proposal{countDistinct(proposals) !== 1 ? 's' : ''} ↓
           </a>
         )}
       </div>
@@ -1039,7 +1039,7 @@ function TableView({ data, showEmails, search }) {
   )
 }
 
-// Proposals awaiting approval (status Proposing), one row per issue
+// New committee proposals (status Proposing), one row per issue
 function ProposalsTable({ rows }) {
   if (rows.length === 0) return null
   const byIssue = new Map()
@@ -1056,10 +1056,10 @@ function ProposalsTable({ rows }) {
         <span className="proposals-icon" aria-hidden="true">⏳</span>
         <div>
           <h2 className="proposals-title">
-            Proposals Awaiting Approval
+            New Committees Proposals
             <span className="proposals-count">{issues.length}</span>
           </h2>
-          <p className="proposals-sub">Groups in Proposing status — not yet approved</p>
+          <p className="proposals-sub">Groups in Proposing status</p>
         </div>
       </div>
       <div className="overflow-x-auto">
