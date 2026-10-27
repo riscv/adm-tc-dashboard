@@ -160,10 +160,21 @@
   .data-table th { position: sticky; top: 0; z-index: 2; background: var(--surface-muted); padding: 9px 10px; border-bottom: 1px solid var(--border); text-align: left; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); white-space: nowrap; }
   .data-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; color: var(--text); }
   .data-table tbody tr:last-child td { border-bottom: 0; }
-  .data-table tbody tr.row-hover:hover td { background: var(--surface-muted); }
   .data-table .num { text-align: right; font-variant-numeric: tabular-nums; }
   .table-frame { border: 1px solid var(--border); border-radius: var(--radius-control); overflow-x: auto; }
-  .group-row td { background: var(--surface-muted); box-shadow: inset 3px 0 0 0 var(--brand); padding: 10px 16px; }
+  .group-row td { background: var(--brand-soft); border-bottom: 1px solid var(--border-strong); box-shadow: inset 3px 0 0 0 var(--brand); padding: 10px 16px; }
+
+  /* Committees table contrast */
+  .data-table tbody tr.row-striped td { background: #f5f7fb; }
+  .data-table tbody tr.row-hover td { border-bottom-color: var(--border-strong); }
+  .data-table tbody tr.row-hover:hover td { background: var(--brand-soft); }
+  .data-table td .text-muted { color: #475569; }
+  .resource-links a { color: #475569; }
+  .resource-links a:hover { color: var(--brand); }
+
+  @keyframes pill-blink { 50% { opacity: .25; } }
+  .pill-blink { animation: pill-blink 1s step-end infinite; background: var(--bad-bg); }
+  @media (prefers-reduced-motion: reduce) { .pill-blink { animation: none; } }
 
   .num-link { font-weight: 600; color: var(--brand); text-decoration: underline dotted; text-underline-offset: 3px; background: none; border: 0; padding: 0; cursor: pointer; font-variant-numeric: tabular-nums; }
   .num-link:hover { color: var(--brand-hover); }

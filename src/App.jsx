@@ -247,14 +247,89 @@ function calculateYearsActive(creationDate) {
   return Math.floor(diffYears * 10) / 10 // Round to 1 decimal
 }
 
+// Task Group 2-year limit: overdue unless a 1 Year Extension was approved
+function getTgLifetimeState(row) {
+  const isTG = (row['Group Type'] || '').includes('Task Group')
+  if (!isTG) return { overdue: false, extended: false }
+  const extended = row['Extension Request'] === 'Approved'
+  const flag = row['2+ Years Active'] || ''
+  const years = calculateYearsActive(row['Creation Date'])
+  // Fall back to the creation date when the Jira automation has not set the flag
+  const overTwoYears = flag.startsWith('🔴') || flag.startsWith('🟡') ||
+    (!flag.startsWith('🟢') && years !== null && years >= 2)
+  return { overdue: overTwoYears && !extended, extended }
+}
+
 // Years active badge component
-function YearsActiveBadge({ creationDate }) {
-  const years = calculateYearsActive(creationDate)
+function YearsActiveBadge({ row }) {
+  const years = calculateYearsActive(row['Creation Date'])
   if (years === null) return null
+  const { overdue } = getTgLifetimeState(row)
   return (
-    <span className="pill pill-brand" title="Time since Group Creation Date">
+    <span
+      className={`pill ${overdue ? 'pill-bad pill-blink' : 'pill-brand'}`}
+      title={overdue ? 'Task Group active for 2+ years without an approved 1 Year Extension' : 'Time since Group Creation Date'}
+    >
       {years < 1 ? `${Math.round(years * 12)}mo` : `${years}y`}
     </span>
+  )
+}
+
+// Approved 1 Year Extension badge component
+function ExtensionBadge({ row }) {
+  if (!getTgLifetimeState(row).extended) return null
+  const decided = row['Extension Decision Date']
+  return (
+    <span
+      className="pill pill-info"
+      title={`1 Year Extension approved${decided ? ` on ${decided}` : ''}`}
+    >
+      +1y Ext.
+    </span>
+  )
+}
+
+// Chair / Vice-Chair term dates
+function TermDates({ start, end }) {
+  if (!start && !end) return null
+  const today = new Date().toISOString().slice(0, 10)
+  const expired = end && end < today
+  return (
+    <div
+      className={`text-xs ${expired ? 'text-red-600 font-medium' : 'text-muted'}`}
+      title={expired ? 'Term ended' : 'Term'}
+    >
+      Term: {start || '?'} → {end || '?'}
+    </div>
+  )
+}
+
+// Next election and any election in progress (RVC)
+function NextElection({ row }) {
+  const month = row['Next Election Month']
+  const year = row['Next Election Year']
+  const open = (row['Open Elections'] || '').split('|').filter(Boolean)
+  if (!year && open.length === 0) return null
+  return (
+    <div className="flex flex-col items-start gap-1">
+      {year && <div className="font-medium text-ink whitespace-nowrap">{month ? `${month} ${year}` : year}</div>}
+      {open.map(entry => {
+        const [key, status] = entry.split(':')
+        return (
+          <a
+            key={entry}
+            href={`https://riscv.atlassian.net/browse/${key}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="pill pill-info hover:no-underline"
+            title={`Election in progress (${key})`}
+          >
+            <span className="dot" />
+            {status || 'Open'}
+          </a>
+        )
+      })}
+    </div>
   )
 }
 
@@ -656,12 +731,12 @@ function buildJiraUrl(issueKey) {
 }
 
 // Table Row Component
-function IssueRow({ row, showEmails }) {
+function IssueRow({ row, showEmails, striped }) {
   const mailto = buildMailtoLink(row)
   const jiraUrl = buildJiraUrl(row['Issue'])
 
   return (
-    <tr className="row-hover">
+    <tr className={`row-hover${striped ? ' row-striped' : ''}`}>
       <td className="!pl-6 sm:!pl-8 !pr-4 !py-3 min-w-[260px]">
         <div className="flex items-start justify-between gap-3">
           <a
@@ -674,11 +749,12 @@ function IssueRow({ row, showEmails }) {
           </a>
           <div className="flex items-center gap-1.5 shrink-0">
             <StatusBadge status={row['Status']} />
-            <YearsActiveBadge creationDate={row['Creation Date']} />
+            <YearsActiveBadge row={row} />
+            <ExtensionBadge row={row} />
             <ActivityBadge level={row['Activity Level']} />
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 resource-links">
           <ResourceLink href={row['Charter']} label="Charter" />
           <ResourceLink href={row['Confluence Space']} label="Confluence" />
           <ResourceLink href={row['PoW']} label="PoW" showWhenMissing />
@@ -697,6 +773,7 @@ function IssueRow({ row, showEmails }) {
             {showEmails && row['Chair Email'] && (
               <div className="text-xs text-muted">{row['Chair Email']}</div>
             )}
+            <TermDates start={row['Chair Start Date']} end={row['Chair End Date']} />
           </div>
         )}
       </td>
@@ -710,8 +787,12 @@ function IssueRow({ row, showEmails }) {
             {showEmails && row['Vice-Chair Email'] && (
               <div className="text-xs text-muted">{row['Vice-Chair Email']}</div>
             )}
+            <TermDates start={row['Vice-Chair Start Date']} end={row['Vice-Chair End Date']} />
           </div>
         )}
+      </td>
+      <td className="!py-3">
+        <NextElection row={row} />
       </td>
       <td className="!py-3">
         <GoverningCommitteePill row={row} />
@@ -783,7 +864,7 @@ function IssueRow({ row, showEmails }) {
 function GroupHeader({ title, count, showEmails }) {
   return (
     <tr className="group-row">
-      <td colSpan={showEmails ? 8 : 5}>
+      <td colSpan={showEmails ? 9 : 6}>
         <span className={`legend-dot inline-block align-middle mr-2 ${committeeTypeClass(title)}`} aria-hidden="true" />
         <span className="font-semibold text-brand">{title}</span>
         <span className="ml-2 text-xs font-medium text-muted">({count} Technical Committee{count !== 1 ? 's' : ''})</span>
@@ -881,6 +962,7 @@ function TableView({ data, showEmails, search }) {
             <th className="!pl-6 sm:!pl-8">Technical Committee</th>
             <th>Chair</th>
             <th>Vice-Chair</th>
+            <th>Next Election</th>
             <th>Governing Committee</th>
             {showEmails && <th>Committee Chair</th>}
             {showEmails && <th>Committee Vice-Chair</th>}
@@ -908,7 +990,7 @@ function GroupedRows({ group, rows, showEmails }) {
     <>
       <GroupHeader title={group} count={sortedRows.length} showEmails={showEmails} />
       {sortedRows.map((row, idx) => (
-        <IssueRow key={`${row['Issue']}-${idx}`} row={row} showEmails={showEmails} />
+        <IssueRow key={`${row['Issue']}-${idx}`} row={row} showEmails={showEmails} striped={idx % 2 === 1} />
       ))}
     </>
   )
