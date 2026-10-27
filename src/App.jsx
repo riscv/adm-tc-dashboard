@@ -295,11 +295,17 @@ function TermDates({ start, end }) {
   const today = new Date().toISOString().slice(0, 10)
   const expired = end && end < today
   return (
-    <div
-      className={`text-xs ${expired ? 'text-red-600 font-medium' : 'text-muted'}`}
-      title={expired ? 'Term ended' : 'Term'}
-    >
-      Term: {start || '?'} → {end || '?'}
+    <div className="term" title={expired ? `Term ended on ${end}` : 'Term'}>
+      <div className="term-stop">
+        <span className="term-label">Start</span>
+        <span className="term-date">{start || '—'}</span>
+        <span className="term-dot" />
+      </div>
+      <div className={`term-stop is-end${expired ? ' is-late' : ''}`}>
+        <span className="term-label">{expired ? 'Ended' : 'End'}</span>
+        <span className="term-date">{end || '—'}</span>
+        <span className="term-dot" />
+      </div>
     </div>
   )
 }
@@ -751,7 +757,6 @@ function IssueRow({ row, showEmails, striped }) {
             <StatusBadge status={row['Status']} />
             <YearsActiveBadge row={row} />
             <ExtensionBadge row={row} />
-            <ActivityBadge level={row['Activity Level']} />
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 resource-links">
@@ -762,6 +767,9 @@ function IssueRow({ row, showEmails, striped }) {
           <ResourceLink href={row['Meeting Notes']} label="Meeting Notes" />
           <ResourceLink href={row['Participation & Voting Rights']} label="Participants & Voters" />
         </div>
+      </td>
+      <td className="!py-3">
+        <ActivityBadge level={row['Activity Level']} />
       </td>
       <td className="!py-3">
         {row['Chair'] && (
@@ -864,7 +872,7 @@ function IssueRow({ row, showEmails, striped }) {
 function GroupHeader({ title, count, showEmails }) {
   return (
     <tr className="group-row">
-      <td colSpan={showEmails ? 9 : 6}>
+      <td colSpan={showEmails ? 10 : 7}>
         <span className={`legend-dot inline-block align-middle mr-2 ${committeeTypeClass(title)}`} aria-hidden="true" />
         <span className="font-semibold text-brand">{title}</span>
         <span className="ml-2 text-xs font-medium text-muted">({count} Technical Committee{count !== 1 ? 's' : ''})</span>
@@ -885,6 +893,9 @@ function TableView({ data, showEmails, search }) {
       if (['TG', 'SIG', 'HC', 'IC'].includes(typeFilter)) return type === typeFilter
       if (typeFilter === 'Proposing') return status === 'Proposing'
       if (typeFilter === 'Structuring') return status === 'Structuring and Chartering'
+      if (typeFilter === 'TGOverdue') return getTgLifetimeState(row).overdue
+      if (typeFilter === 'TGExtension') return getTgLifetimeState(row).extended
+      if (typeFilter.startsWith('activity:')) return normalizeActivityLevel(row['Activity Level']) === typeFilter.slice(9)
       return true
     })
   }, [data, typeFilter])
@@ -912,8 +923,18 @@ function TableView({ data, showEmails, search }) {
     { key: 'Proposing', label: 'Proposing' },
     { key: 'Structuring', label: 'Structuring & Chartering' },
   ]
+  const lifecycleButtons = [
+    { key: 'TGOverdue', label: 'TGs 2+ years (no extension)' },
+    { key: 'TGExtension', label: 'TGs in 1 Year Extension' },
+  ]
+  const activityButtons = ['veryActive', 'active', 'low', 'inactive'].map(key => ({
+    key: `activity:${key}`,
+    label: ACTIVITY_META[key].label,
+    badgeClass: ACTIVITY_META[key].badgeClass,
+  }))
+  const allButtons = [...filterButtons, ...lifecycleButtons, ...activityButtons]
 
-  const current = filterButtons.find(btn => btn.key === typeFilter) || filterButtons[0]
+  const current = allButtons.find(btn => btn.key === typeFilter) || filterButtons[0]
 
   return (
     <div>
@@ -940,6 +961,20 @@ function TableView({ data, showEmails, search }) {
               {btn.label}
             </button>
           ))}
+          <div className="menu-sep" />
+          <div className="menu-label">Task Group lifetime</div>
+          {lifecycleButtons.map(btn => (
+            <button key={btn.label} type="button" role="menuitemradio" aria-checked={typeFilter === btn.key} className={`menu-item ${typeFilter === btn.key ? 'is-active' : ''}`} onClick={() => setTypeFilter(btn.key)}>
+              {btn.label}
+            </button>
+          ))}
+          <div className="menu-sep" />
+          <div className="menu-label">Activity</div>
+          {activityButtons.map(btn => (
+            <button key={btn.label} type="button" role="menuitemradio" aria-checked={typeFilter === btn.key} className={`menu-item ${typeFilter === btn.key ? 'is-active' : ''}`} onClick={() => setTypeFilter(btn.key)}>
+              <span className={`pill ${btn.badgeClass}`}><span className="dot" />{btn.label}</span>
+            </button>
+          ))}
         </Menu>
         {typeFilter && (
           <span className="text-xs text-muted">
@@ -960,6 +995,7 @@ function TableView({ data, showEmails, search }) {
         <thead>
           <tr>
             <th className="!pl-6 sm:!pl-8">Technical Committee</th>
+            <th>Activity</th>
             <th>Chair</th>
             <th>Vice-Chair</th>
             <th>Next Election</th>
