@@ -1068,8 +1068,8 @@ function ProposalsTable({ rows }) {
             <tr>
               <th className="!pl-6 sm:!pl-8">Proposal</th>
               <th>Proposed Since</th>
-              <th>Proposed Chair</th>
-              <th>Proposed Vice-Chair</th>
+              <th>Acting Chair</th>
+              <th>Acting Vice-Chair</th>
               <th>Governing Committee</th>
             </tr>
           </thead>
