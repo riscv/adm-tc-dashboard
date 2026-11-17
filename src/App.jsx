@@ -744,12 +744,12 @@ function buildJiraUrl(issueKey) {
 }
 
 // Table Row Component
-function IssueRow({ row, showEmails, striped }) {
+function IssueRow({ row, showEmails, striped, targeted }) {
   const mailto = buildMailtoLink(row)
   const jiraUrl = buildJiraUrl(row['Issue'])
 
   return (
-    <tr className={`row-hover${striped ? ' row-striped' : ''}`}>
+    <tr data-issue={row['Issue']} className={`row-hover${striped ? ' row-striped' : ''}${targeted ? ' row-target' : ''}`}>
       <td className="!pl-6 sm:!pl-8 !pr-4 !py-3 min-w-[260px]">
         <div className="flex items-start justify-between gap-3">
           <a
@@ -888,9 +888,34 @@ function GroupHeader({ title, count, showEmails }) {
   )
 }
 
+// The RVG key in the URL hash (#RVG-84), or '' when there is none.
+function useHashIssue() {
+  const read = () => {
+    const key = decodeURIComponent(window.location.hash.slice(1)).toUpperCase()
+    return /^RVG-\d+$/.test(key) ? key : ''
+  }
+  const [issue, setIssue] = useState(read)
+  useEffect(() => {
+    const onHash = () => setIssue(read())
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+  return issue
+}
+
 // Table View Component
 function TableView({ data, showEmails, search }) {
   const [typeFilter, setTypeFilter] = useState(null)
+  const targetIssue = useHashIssue()
+
+  // ?committees#RVG-84 opens the table at that group's row (the Spec
+  // Dashboard links here). A group with two governing committees has two
+  // rows; the first one is shown.
+  useEffect(() => {
+    if (!targetIssue || !data.length) return
+    const tr = document.querySelector(`tr[data-issue="${targetIssue}"]`)
+    if (tr) tr.scrollIntoView({ block: 'center' })
+  }, [targetIssue, data])
 
   const filteredByType = useMemo(() => {
     if (!typeFilter) return data
@@ -1026,13 +1051,13 @@ function TableView({ data, showEmails, search }) {
         </thead>
         <tbody>
           {sortedGroups.map(group => (
-            <GroupedRows key={group} group={group} rows={grouped[group]} showEmails={showEmails} />
+            <GroupedRows key={group} group={group} rows={grouped[group]} showEmails={showEmails} targetIssue={targetIssue} />
           ))}
         </tbody>
       </table>
       </div>
       )}
-      <ProposalsTable rows={proposals} />
+      <ProposalsTable rows={proposals} targetIssue={targetIssue} />
       </>
       )}
     </div>
@@ -1040,7 +1065,7 @@ function TableView({ data, showEmails, search }) {
 }
 
 // New committee proposals (status Proposing), one row per issue
-function ProposalsTable({ rows }) {
+function ProposalsTable({ rows, targetIssue }) {
   if (rows.length === 0) return null
   const byIssue = new Map()
   rows.forEach(row => {
@@ -1079,7 +1104,7 @@ function ProposalsTable({ rows }) {
               const since = row['Lifecycle Starting Date'] || row['Creation Date']
               const years = calculateYearsActive(since)
               return (
-                <tr key={row['Issue']} className={`row-hover${idx % 2 === 1 ? ' row-striped' : ''}`}>
+                <tr key={row['Issue']} data-issue={row['Issue']} className={`row-hover${idx % 2 === 1 ? ' row-striped' : ''}${row['Issue'] === targetIssue ? ' row-target' : ''}`}>
                   <td className="!pl-6 sm:!pl-8 !pr-4 !py-3 min-w-[260px]">
                     <a
                       href={buildJiraUrl(row['Issue'])}
@@ -1137,7 +1162,7 @@ function ProposalsTable({ rows }) {
   )
 }
 
-function GroupedRows({ group, rows, showEmails }) {
+function GroupedRows({ group, rows, showEmails, targetIssue }) {
   const sortedRows = [...rows].sort((a, b) =>
     (a['Summary'] || '').localeCompare(b['Summary'] || '')
   )
@@ -1145,7 +1170,7 @@ function GroupedRows({ group, rows, showEmails }) {
     <>
       <GroupHeader title={group} count={sortedRows.length} showEmails={showEmails} />
       {sortedRows.map((row, idx) => (
-        <IssueRow key={`${row['Issue']}-${idx}`} row={row} showEmails={showEmails} striped={idx % 2 === 1} />
+        <IssueRow key={`${row['Issue']}-${idx}`} row={row} showEmails={showEmails} striped={idx % 2 === 1} targeted={row['Issue'] === targetIssue} />
       ))}
     </>
   )
