@@ -175,6 +175,9 @@
 
   /* Committees table contrast */
   .data-table tbody tr.row-striped td { background: #f8f9fb; }
+  /* Row opened from a link (#RVG-84) */
+  .data-table tbody tr.row-target td { background: #fff7d6; }
+  .data-table tbody tr.row-target td:first-child { box-shadow: inset 4px 0 0 var(--brand); }
 
   /* Chair / Vice-Chair term: dates plus elapsed-term track */
   .term { margin-top: 4px; max-width: 168px; }
